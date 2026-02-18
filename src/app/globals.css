@@ -1289,3 +1289,128 @@ body {
     font-size: 12px;
   }
 }
+
+@media (max-width: 1024px) {
+  .header {
+    height: 60px;
+    padding: 0 16px;
+  }
+
+  .header-logo img {
+    width: 32px;
+    height: 32px;
+  }
+
+  .header-logo-text .jp {
+    font-size: 16px;
+  }
+
+  .header-logo-text .en {
+    font-size: 8px;
+    letter-spacing: 1px;
+  }
+
+  /* Hide nav links on tablet and mobile for a cleaner look */
+  .header-nav {
+    display: flex;
+    gap: 8px;
+  }
+
+  .header-nav a {
+    display: none;
+    /* Hide text links */
+  }
+
+  .wallet-btn {
+    padding: 6px 12px;
+    font-size: 11px;
+  }
+}
+
+/* Better Mobile Optimization */
+@media (max-width: 600px) {
+
+  /* Re-enforce hidden nav just in case */
+  .header-nav a {
+    display: none;
+  }
+
+  /* Series Page Polish */
+  .series-hero {
+    padding: 80px 16px 20px;
+    /* Reduced bottom padding */
+    min-height: auto;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+  }
+
+  .series-cover {
+    width: 130px;
+    /* Slightly smaller */
+    margin: 0 auto 20px;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+    border-radius: var(--radius-md);
+    overflow: hidden;
+  }
+
+  .series-info {
+    text-align: center;
+    width: 100%;
+  }
+
+  .series-info h1 {
+    font-size: 20px;
+    /* Smaller title */
+    margin-bottom: 8px;
+    line-height: 1.3;
+  }
+
+  .genre-tags {
+    justify-content: center;
+    gap: 6px;
+    margin-bottom: 16px;
+    display: flex;
+    flex-wrap: wrap;
+  }
+
+  .genre-tag {
+    font-size: 9px;
+    padding: 3px 8px;
+    background: rgba(192, 132, 252, 0.08);
+    /* Lighter bg */
+  }
+
+  /* Stats row in series info */
+  .series-info>div.flex {
+    justify-content: center;
+    gap: 16px;
+  }
+
+  /* Reduce scattered feel in grid */
+  .manga-grid {
+    grid-template-columns: repeat(2, 1fr);
+    /* Force 2 columns */
+    gap: 10px;
+    /* Tight gap */
+    padding: 0 4px;
+    /* Slight side padding */
+  }
+
+  .manga-card-info {
+    padding: 8px;
+  }
+
+  .manga-card-title {
+    font-size: 12px;
+    margin-bottom: 4px;
+    line-height: 1.3;
+  }
+
+  /* Hide rating/follows on mobile grid if it makes it too tall/cluttered? 
+     Let's keep it but make it smaller
+  */
+  .manga-card-meta {
+    font-size: 9px;
+  }
+}

@@ -1,65 +1,60 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useEffect, useCallback } from "react";
 import Header from "@/components/Header";
 import MangaCard from "@/components/MangaCard";
+import { searchAllSources } from "@/lib/sources";
+import { type Manga } from "@/lib/sources/types";
 
-interface Chapter {
-    number: number;
-    pageCount: number;
-    path: string;
+// Debounce hook for search
+function useDebounce(value: string, delay: number) {
+    const [debouncedValue, setDebouncedValue] = useState(value);
+    useEffect(() => {
+        const handler = setTimeout(() => setDebouncedValue(value), delay);
+        return () => clearTimeout(handler);
+    }, [value, delay]);
+    return debouncedValue;
 }
-
-interface Series {
-    id: string;
-    title: string;
-    slug: string;
-    genres: string[];
-    chapters: Chapter[];
-    cover: string;
-    synopsis: string;
-}
-
-interface Catalog {
-    series: Series[];
-}
-
-const ALL_GENRES = [
-    "All", "Action", "Romance", "Comedy", "Supernatural", "Shōnen", "Adventure",
-];
 
 export default function BrowsePage() {
-    const [catalog, setCatalog] = useState<Catalog | null>(null);
+    const [mangaList, setMangaList] = useState<Manga[]>([]);
     const [search, setSearch] = useState("");
-    const [activeGenre, setActiveGenre] = useState("All");
-    const [loaded, setLoaded] = useState(false);
+    const [loading, setLoading] = useState(true);
+    const debouncedSearch = useDebounce(search, 500);
 
-    // Load catalog on mount
-    if (!loaded) {
-        fetch("/manga/catalog.json")
-            .then((r) => r.json())
-            .then((data: Catalog) => {
-                setCatalog(data);
-                setLoaded(true);
-            })
-            .catch(() => setLoaded(true));
-    }
+    const fetchManga = useCallback(async (query: string) => {
+        setLoading(true);
+        try {
+            // Use multi-source search
+            const results = await searchAllSources(query);
+            setMangaList(results);
 
-    const filtered = useMemo(() => {
-        if (!catalog) return [];
-        let series = catalog.series;
-
-        if (search) {
-            const q = search.toLowerCase();
-            series = series.filter((s) => s.title.toLowerCase().includes(q));
+            // Fetch stats (ratings) only for MangaDex items (WeebCentral doesn't have reliable stats API yet)
+            // We can optimize this later
+            const mangadexIds = results.filter(m => m.sourceStr === 'mangadex').map(m => m.id);
+            if (mangadexIds.length > 0) {
+                const { getMangaStatistics } = await import("@/lib/mangadex");
+                const stats = await getMangaStatistics(mangadexIds);
+                setMangaList(prev => prev.map(m => {
+                    if (m.sourceStr !== 'mangadex') return m;
+                    const stat = stats[m.id];
+                    return {
+                        ...m,
+                        rating: stat?.rating?.average,
+                        follows: stat?.follows
+                    };
+                }));
+            }
+        } catch (e) {
+            console.error("Search failed", e);
         }
+        setLoading(false);
+    }, []);
 
-        if (activeGenre !== "All") {
-            series = series.filter((s) => s.genres.includes(activeGenre));
-        }
-
-        return series;
-    }, [catalog, search, activeGenre]);
+    // Initial load & Search effect
+    useEffect(() => {
+        fetchManga(debouncedSearch);
+    }, [debouncedSearch, fetchManga]);
 
     return (
         <>
@@ -68,7 +63,7 @@ export default function BrowsePage() {
                 <section className="section" style={{ paddingTop: 40 }}>
                     <div className="section-header">
                         <h2 className="section-title">マンガ一覧</h2>
-                        <p className="section-subtitle">All Manga — 全{catalog?.series.length || 0}作品</p>
+                        <p className="section-subtitle">Browse Series — {loading ? "Loading..." : `${mangaList.length} Results`}</p>
                     </div>
 
                     {/* Search */}
@@ -76,27 +71,14 @@ export default function BrowsePage() {
                         <span className="search-icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8" /><line x1="21" x2="16.65" y1="21" y2="16.65" /></svg></span>
                         <input
                             type="text"
-                            placeholder="マンガを検索... Search manga..."
+                            placeholder="マンガを検索... Search for your favorite manga..."
                             value={search}
                             onChange={(e) => setSearch(e.target.value)}
                         />
                     </div>
 
-                    {/* Genre Filters */}
-                    <div className="genre-filters">
-                        {ALL_GENRES.map((genre) => (
-                            <button
-                                key={genre}
-                                className={`genre-chip ${activeGenre === genre ? "active" : ""}`}
-                                onClick={() => setActiveGenre(genre)}
-                            >
-                                {genre}
-                            </button>
-                        ))}
-                    </div>
-
                     {/* Grid */}
-                    {!catalog ? (
+                    {loading ? (
                         <div
                             style={{
                                 display: "grid",
@@ -117,21 +99,20 @@ export default function BrowsePage() {
                     ) : (
                         <>
                             <div className="manga-grid">
-                                {filtered.map((series) => (
+                                {mangaList.map((manga) => (
                                     <MangaCard
-                                        key={series.slug}
-                                        slug={series.slug}
-                                        title={series.title}
-                                        cover={series.cover}
-                                        genres={series.genres}
-                                        chapterCount={series.chapters.length}
-                                        latestChapter={
-                                            series.chapters[series.chapters.length - 1]?.number
-                                        }
+                                        key={manga.id}
+                                        slug={manga.id} // We use ID as slug now
+                                        title={manga.title}
+                                        cover={manga.cover}
+                                        genres={manga.tags.slice(0, 3)}
+                                        follows={manga.follows}
+                                        rating={manga.rating}
+                                        source={manga.sourceStr}
                                     />
                                 ))}
                             </div>
-                            {filtered.length === 0 && (
+                            {mangaList.length === 0 && !loading && (
                                 <div
                                     style={{
                                         textAlign: "center",
@@ -143,7 +124,7 @@ export default function BrowsePage() {
                                     <p style={{ fontFamily: "var(--font-jp)", fontSize: 18 }}>
                                         見つかりませんでした
                                     </p>
-                                    <p style={{ fontSize: 14 }}>No manga found matching your search.</p>
+                                    <p style={{ fontSize: 14 }}>No manga found.</p>
                                 </div>
                             )}
                         </>

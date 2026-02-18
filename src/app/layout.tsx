@@ -1,10 +1,15 @@
 import type { Metadata } from "next";
+import dynamic from "next/dynamic";
 import "./globals.css";
+
+import SolanaProvider from "@/components/WalletProvider";
 
 export const metadata: Metadata = {
   title: "桜 Sakura — Manga on Solana",
   description: "Read manga, collect chapters, own your library. A Solana-powered manga reading platform with beautiful Japanese aesthetics.",
 };
+
+import MobileNavHandler from "@/components/MobileNavHandler";
 
 export default function RootLayout({
   children,
@@ -27,7 +32,10 @@ export default function RootLayout({
           ))}
         </div>
 
-        {children}
+        <SolanaProvider>
+          <MobileNavHandler />
+          {children}
+        </SolanaProvider>
       </body>
     </html>
   );

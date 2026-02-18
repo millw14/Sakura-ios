@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Sakura</string>
+    <string name="title_activity_main">Sakura</string>
+    <string name="package_name">com.millw14.sakura</string>
+    <string name="custom_url_scheme">com.millw14.sakura</string>
+</resources>

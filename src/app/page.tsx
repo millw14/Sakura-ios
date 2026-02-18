@@ -1,57 +1,23 @@
+"use client";
+
 import Header from "@/components/Header";
 import MangaCard from "@/components/MangaCard";
 import Link from "next/link";
-import fs from "fs";
-import path from "path";
-
-interface Chapter {
-  number: number;
-  pageCount: number;
-  path: string;
-}
-
-interface Series {
-  id: string;
-  title: string;
-  slug: string;
-  genres: string[];
-  chapters: Chapter[];
-  cover: string;
-  synopsis: string;
-}
-
-interface Catalog {
-  series: Series[];
-}
-
-function getCatalog(): Catalog {
-  const catalogPath = path.join(process.cwd(), "public", "manga", "catalog.json");
-  if (!fs.existsSync(catalogPath)) {
-    return { series: [] };
-  }
-  return JSON.parse(fs.readFileSync(catalogPath, "utf-8"));
-}
-
-// Featured series that should appear on the home page
-const FEATURED_SLUGS = [
-  "chainsaw-man", "dandadan", "kagurabachi", "one-punch-man",
-  "sakamoto-days", "blue-box", "boruto---two-blue-vortex", "jujutsu-kaisen-modulo",
-  "ruridragon", "the-elusive-samurai", "ichi-the-witch", "akane-banashi",
-];
+import { useState, useEffect } from "react";
+import { getFeaturedManga, type Manga } from "@/lib/mangadex";
 
 export default function Home() {
-  const catalog = getCatalog();
-  const featured = FEATURED_SLUGS
-    .map((slug) => catalog.series.find((s) => s.slug === slug))
-    .filter(Boolean) as Series[];
+  const [featured, setFeatured] = useState<Manga[]>([]);
+  const [loading, setLoading] = useState(true);
 
-  // Fill remaining slots with other series
-  if (featured.length < 12) {
-    const remaining = catalog.series
-      .filter((s) => !FEATURED_SLUGS.includes(s.slug))
-      .slice(0, 12 - featured.length);
-    featured.push(...remaining);
-  }
+  useEffect(() => {
+    async function loadFeatured() {
+      const data = await getFeaturedManga();
+      setFeatured(data);
+      setLoading(false);
+    }
+    loadFeatured();
+  }, []);
 
   return (
     <>
@@ -90,7 +56,7 @@ export default function Home() {
 
             <div className="stats-bar">
               <div className="stat-item">
-                <div className="stat-value">{catalog.series.length}</div>
+                <div className="stat-value">10k+</div>
                 <div className="stat-label">Series</div>
                 <div className="stat-label-jp">シリーズ</div>
               </div>
@@ -114,21 +80,33 @@ export default function Home() {
             <h2 className="section-title">注目のマンガ</h2>
             <p className="section-subtitle">Featured Series</p>
           </div>
-          <div className="manga-grid">
-            {featured.map((series) => (
-              <MangaCard
-                key={series.slug}
-                slug={series.slug}
-                title={series.title}
-                cover={series.cover}
-                genres={series.genres}
-                chapterCount={series.chapters.length}
-                latestChapter={
-                  series.chapters[series.chapters.length - 1]?.number
-                }
-              />
-            ))}
-          </div>
+
+          {loading ? (
+            <div className="manga-grid">
+              {Array.from({ length: 4 }).map((_, i) => (
+                <div
+                  key={i}
+                  className="loading-skeleton"
+                  style={{ aspectRatio: "2/3", borderRadius: "var(--radius-md)" }}
+                />
+              ))}
+            </div>
+          ) : (
+            <div className="manga-grid">
+              {featured.map((series) => (
+                <MangaCard
+                  key={series.id}
+                  slug={series.id}
+                  title={series.title}
+                  cover={series.cover}
+                  genres={series.tags.slice(0, 3)}
+                  follows={series.follows}
+                  rating={series.rating}
+                />
+              ))}
+            </div>
+          )}
+
           <div style={{ textAlign: "center", marginTop: 40 }}>
             <Link href="/manga" className="btn-secondary">
               全てのマンガを見る — View All Manga →
