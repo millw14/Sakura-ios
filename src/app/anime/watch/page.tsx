@@ -126,17 +126,45 @@ function AnimeWatchInner() {
                 paddingBottom: "10px"
             }}>
                 {source?.isIframe ? (
-                    <iframe
-                        src={source.url}
-                        allowFullScreen
-                        style={{
-                            width: "100%",
-                            height: "100%",
-                            border: "none",
-                            maxHeight: "85vh",
-                            background: "black"
-                        }}
-                    />
+                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 20 }}>
+                        <div style={{
+                            padding: 24,
+                            background: 'rgba(255,255,255,0.05)',
+                            borderRadius: 16,
+                            border: '1px solid rgba(255,255,255,0.1)',
+                            textAlign: 'center',
+                            maxWidth: 400
+                        }}>
+                            <h3 style={{ margin: '0 0 12px 0', fontSize: 18, color: 'white' }}>Stream Ready</h3>
+                            <p style={{ margin: '0 0 24px 0', fontSize: 14, color: 'var(--text-muted)' }}>
+                                This episode uses a premium external stream. Tap below to launch the native embedded video player.
+                            </p>
+
+                            <button
+                                onClick={async () => {
+                                    const { Browser } = await import('@capacitor/browser');
+                                    await Browser.open({ url: source.url, presentationStyle: 'fullscreen', windowName: '_blank' });
+                                }}
+                                style={{
+                                    background: 'var(--sakura-pink)',
+                                    color: 'white',
+                                    border: 'none',
+                                    padding: '14px 32px',
+                                    borderRadius: 30,
+                                    fontSize: 16,
+                                    fontWeight: 600,
+                                    cursor: 'pointer',
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    gap: 10,
+                                    boxShadow: '0 8px 24px rgba(255, 107, 158, 0.4)'
+                                }}
+                            >
+                                <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3" /></svg>
+                                Open Native Player
+                            </button>
+                        </div>
+                    </div>
                 ) : (
                     <video
                         controls
