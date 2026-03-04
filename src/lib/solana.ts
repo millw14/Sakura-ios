@@ -1,32 +1,36 @@
 import { Connection, PublicKey } from "@solana/web3.js";
 
 // ============ Network Config ============
-export const SOLANA_NETWORK = "devnet";
-export const RPC_ENDPOINT = "https://api.devnet.solana.com";
+export const SOLANA_NETWORK = "mainnet-beta";
+export const RPC_ENDPOINT = "https://methodical-damp-scion.solana-mainnet.quiknode.pro/472e366da66699252c8bc1e4cae44f8ea9dc4265/";
 
-// ============ USDC Config ============
-// Devnet USDC mint address (SPL token)
-export const USDC_MINT = new PublicKey(
-    "4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU" // devnet USDC
+// ============ $SAKURA Token Config ============
+// $SAKURA SPL token mint address
+export const SAKURA_MINT = new PublicKey(
+    "EWiVNxCqNatzV2paBHyfKUwGLnk7WKs9uZTA5jkTpump"
 );
-export const USDC_DECIMALS = 6;
-
-// ============ Treasury ============
-// Devnet treasury wallet — receives USDC payments for passes
-// Replace with your own wallet for mainnet
-export const TREASURY_WALLET = new PublicKey(
-    "11111111111111111111111111111111" // placeholder — will be updated
-);
+export const SAKURA_DECIMALS = 9;
 
 // ============ Pass Config ============
-// ============ Pass Config ============
-export const WEEKLY_PASS_PRICE = 10; // 10 USDC (Monthly)
-export const PASS_DURATION_DAYS = 30; // 30 Days
-export const PASS_COLLECTION_NAME = "Sakura Premium Pass";
+export const MONTHLY_PASS_PRICE = 100; // 100 $SAKURA for a monthly pass
+export const PASS_DURATION_DAYS = 30;
+export const PASS_COLLECTION_NAME = "Sakura Monthly Pass";
 
-// ============ Merkle Tree ============
-// Will be populated after running scripts/create-tree.ts
-export const MERKLE_TREE_ADDRESS = "";
+// ============ Payment Split Configuration ============
+// The SakuraFeeRouter program handles splitting this automatically. 
+// Hardcoded split in Program: 50% Insurance, 50% SPL Burn.
+
+export const FEE_ROUTER_PROGRAM_ID = new PublicKey(
+    "FNoE2JUhn981hBDyBMvWJYkw9DThhtYwWoPbw6wgz1rg"
+);
+
+export const PERCOLATOR_INSURANCE_VAULT = new PublicKey(
+    "63juJmvm1XHCHveWv9WdanxqJX6tD6DLFTZD7dvH12dc"
+);
+
+export const INSURANCE_SPLIT = 50;
+export const BURN_SPLIT = 50;
+
 
 // ============ Connection ============
 let connectionInstance: Connection | null = null;
@@ -47,6 +51,6 @@ export function lamportsToSol(lamports: number): number {
     return lamports / 1e9;
 }
 
-export function usdcToSmallestUnit(amount: number): number {
-    return Math.round(amount * 10 ** USDC_DECIMALS);
+export function sakuraToSmallestUnit(amount: number): number {
+    return Math.round(amount * 10 ** SAKURA_DECIMALS);
 }

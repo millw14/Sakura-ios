@@ -1,0 +1,140 @@
+import { supabase } from "./supabase";
+
+export interface CreatorProfile {
+    wallet_address: string;
+    display_name: string;
+    bio: string | null;
+    avatar_url: string | null;
+    is_verified: boolean;
+    mangadex_author_id: string | null;
+    created_at: string;
+    updated_at: string;
+}
+
+export interface TipRecord {
+    id: number;
+    tx_hash: string;
+    sender_address: string;
+    receiver_address: string;
+    amount_sol: number;
+    created_at: string;
+}
+
+export async function getCreatorProfile(walletAddressOrAuthorId: string): Promise<CreatorProfile | null> {
+    if (!supabase) return null;
+
+    // Try to fetch by wallet_address or mangadex_author_id
+    const { data, error } = await supabase
+        .from("creator_profiles")
+        .select("*")
+        .or(`wallet_address.eq.${walletAddressOrAuthorId},mangadex_author_id.eq.${walletAddressOrAuthorId}`)
+        .single();
+
+    if (error && error.code !== "PGRST116") {
+        console.error("Error fetching creator profile:", error);
+        return null;
+    }
+
+    return data || null;
+}
+
+export async function submitCreatorApplication(
+    walletAddress: string,
+    displayName: string,
+    bio: string,
+    mangadexAuthorId: string | null
+): Promise<boolean> {
+    if (!supabase) return false;
+
+    const { error } = await supabase
+        .from("creator_profiles")
+        .upsert({
+            wallet_address: walletAddress,
+            display_name: displayName,
+            bio: bio,
+            mangadex_author_id: mangadexAuthorId,
+            is_verified: false, // Default to false until manually approved or via automated system
+            updated_at: new Date().toISOString(),
+        }, { onConflict: "wallet_address" });
+
+    if (error) {
+        console.error("Error submitting creator application:", error);
+        return false;
+    }
+    return true;
+}
+
+export async function recordTip(
+    txHash: string,
+    senderAddress: string,
+    receiverAddress: string,
+    amountSol: number
+): Promise<boolean> {
+    if (!supabase) return false;
+
+    const { error } = await supabase
+        .from("tips_history")
+        .insert({
+            tx_hash: txHash,
+            sender_address: senderAddress,
+            receiver_address: receiverAddress,
+            amount_sol: amountSol
+        });
+
+    if (error) {
+        console.error("Error recording tip:", error);
+        return false;
+    }
+    return true;
+}
+
+export async function getCreatorTips(walletAddress: string): Promise<TipRecord[]> {
+    if (!supabase) return [];
+
+    const { data, error } = await supabase
+        .from("tips_history")
+        .select("*")
+        .eq("receiver_address", walletAddress)
+        .order("created_at", { ascending: false });
+
+    if (error) {
+        console.error("Error fetching tips:", error);
+        return [];
+    }
+
+    return data || [];
+}
+
+// Admin Functions
+export async function getPendingCreators(): Promise<CreatorProfile[]> {
+    if (!supabase) return [];
+
+    const { data, error } = await supabase
+        .from("creator_profiles")
+        .select("*")
+        .eq("is_verified", false)
+        .order("created_at", { ascending: false });
+
+    if (error) {
+        console.error("Error fetching pending creators:", error);
+        return [];
+    }
+
+    return data || [];
+}
+
+export async function verifyCreator(walletAddress: string): Promise<boolean> {
+    if (!supabase) return false;
+
+    const { error } = await supabase
+        .from("creator_profiles")
+        .update({ is_verified: true, updated_at: new Date().toISOString() })
+        .eq("wallet_address", walletAddress);
+
+    if (error) {
+        console.error("Error verifying creator:", error);
+        return false;
+    }
+
+    return true;
+}

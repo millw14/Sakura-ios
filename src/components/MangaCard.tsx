@@ -1,44 +1,35 @@
 import Link from "next/link";
+import { memo } from "react";
 
 interface MangaCardProps {
     slug: string;
     title: string;
     cover: string;
     genres: string[];
-    chapterCount: number;
+    chapterCount?: number;
     latestChapter?: number;
+    follows?: number;
+    rating?: number;
+    source?: string;
 }
 
-export default function MangaCard({
+const MangaCard = memo(function MangaCard({
     slug,
     title,
     cover,
     genres,
     chapterCount,
-    latestChapter,
     follows,
     rating,
     source
-}: {
-    slug: string,
-    title: string,
-    cover: string,
-    genres: string[],
-    chapterCount?: number,
-    latestChapter?: number,
-    follows?: number,
-    rating?: number,
-    source?: string
-}) {
+}: MangaCardProps) {
     return (
         <Link href={`/title?id=${slug}&source=${source || 'weebcentral'}`} className="manga-card">
             <div className="manga-card-cover">
                 {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={cover} alt={title} loading="lazy" />
+                <img src={cover} alt={title} loading="lazy" decoding="async" referrerPolicy="no-referrer" />
                 <div className="manga-card-badge">
-                    {source && source !== 'weebcentral' && (
-                        <span style={{ background: "var(--purple-accent)", marginRight: 4 }}>{source}</span>
-                    )}
+                    {/* Removed source badge based on user request to make it cleaner */}
                     {follows ? (
                         <span>♥ {follows.toLocaleString()}</span>
                     ) : chapterCount ? (
@@ -61,4 +52,6 @@ export default function MangaCard({
             </div>
         </Link>
     );
-}
+});
+
+export default MangaCard;

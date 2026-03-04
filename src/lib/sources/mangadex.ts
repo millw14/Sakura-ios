@@ -5,8 +5,8 @@ export class MangaDexSource implements MangaSource {
     name = "MangaDex";
     id = "mangadex";
 
-    async searchManga(query: string, limit = 20, offset = 0): Promise<Manga[]> {
-        const results = await api.searchManga(query, limit, offset);
+    async searchManga(query: string): Promise<Manga[]> {
+        const results = await api.searchManga(query, 20, 0);
         return results.map(m => ({
             ...m,
             sourceStr: this.id
@@ -22,8 +22,8 @@ export class MangaDexSource implements MangaSource {
         };
     }
 
-    async getChapters(mangaId: string, limit = 100, offset = 0): Promise<Chapter[]> {
-        const chapters = await api.getChapters(mangaId, limit, offset);
+    async getChapters(mangaId: string): Promise<Chapter[]> {
+        const chapters = await api.getChapters(mangaId, 100, 0);
         return chapters.map(c => ({
             ...c,
             mangaId: mangaId,

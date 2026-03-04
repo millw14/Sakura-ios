@@ -3,29 +3,95 @@
 import Header from "@/components/Header";
 import MangaCard from "@/components/MangaCard";
 import { useWallet } from "@solana/wallet-adapter-react";
-import { useWalletModal } from "@solana/wallet-adapter-react-ui";
+import { useSakuraWalletModal } from "@/components/SakuraWalletModal";
 import { useState, useEffect } from "react";
 import Link from "next/link";
 import { getFavorites, type FavoriteManga } from "@/lib/supabase";
+import { useDownloads } from "@/lib/downloads";
+import { useMemo } from "react";
 
 export default function FavoritesPage() {
     const { publicKey } = useWallet();
-    const { setVisible } = useWalletModal();
+    const { setVisible } = useSakuraWalletModal();
     const [favorites, setFavorites] = useState<FavoriteManga[]>([]);
     const [loading, setLoading] = useState(true);
 
+    const downloads = useDownloads();
+
+    // Extract downloaded local mangas
+    const localMangas = useMemo(() => {
+        const mangaMap = new Map<string, FavoriteManga>();
+        Object.values(downloads)
+            .filter(dl => dl.state === 'completed')
+            .forEach(dl => {
+                if (!mangaMap.has(dl.mangaId)) {
+                    mangaMap.set(dl.mangaId, {
+                        manga_id: dl.mangaId,
+                        title: dl.title.split(' - ')[0] || "Downloaded Manga",
+                        cover_url: dl.cover || "/placeholder.png"
+                    } as FavoriteManga);
+                }
+            });
+        return Array.from(mangaMap.values());
+    }, [downloads]);
+
+    // Merge cloud and local
+    const mergedLibrary = useMemo(() => {
+        const idSet = new Set<string>();
+        const merged: FavoriteManga[] = [];
+
+        favorites.forEach(f => {
+            if (!idSet.has(f.manga_id)) {
+                idSet.add(f.manga_id);
+                merged.push(f);
+            }
+        });
+
+        localMangas.forEach(l => {
+            if (!idSet.has(l.manga_id)) {
+                idSet.add(l.manga_id);
+                merged.push(l);
+            }
+        });
+
+        return merged;
+    }, [favorites, localMangas]);
+
+    // 1. Load from Local Cache immediately
+    useEffect(() => {
+        const { getLocal } = require("@/lib/storage");
+        const cached = getLocal('sakura_favorites', []);
+        if (cached.length > 0) {
+            setFavorites(cached);
+            setLoading(false); // Show cached content immediately
+        }
+    }, []);
+
+    // 2. Sync with Cloud (Supabase)
     useEffect(() => {
         async function fetchFavorites() {
             if (!publicKey) {
-                setFavorites([]);
-                setLoading(false);
+                // If no wallet, stick to local or empty
+                if (favorites.length === 0) setLoading(false);
                 return;
             }
 
-            setLoading(true);
-            const data = await getFavorites(publicKey.toBase58());
-            setFavorites(data);
-            setLoading(false);
+            try {
+                // Background fetch
+                const data = await getFavorites(publicKey.toBase58());
+
+                // Update State
+                setFavorites(data);
+
+                // Update Local Cache
+                const { setLocal } = require("@/lib/storage");
+                setLocal('sakura_favorites', data);
+
+                setLoading(false);
+            } catch (error) {
+                console.error("Failed to sync favorites:", error);
+                setLoading(false);
+            }
         }
 
         fetchFavorites();
@@ -38,7 +104,7 @@ export default function FavoritesPage() {
                 <section className="section" style={{ paddingTop: 40 }}>
                     <div className="section-header">
                         <h2 className="section-title">お気に入り Favorites</h2>
-                        <p className="section-subtitle">Your Cloud Collection</p>
+                        <p className="section-subtitle">Your Collection</p>
                     </div>
 
                     {!publicKey ? (
@@ -49,22 +115,22 @@ export default function FavoritesPage() {
                                     <path d="M7 11V7a5 5 0 0 1 10 0v4" />
                                 </svg>
                             </div>
-                            <h3 className="empty-title">ウォレットを接続</h3>
-                            <p className="empty-text">Connect your wallet to see your cloud favorites.</p>
+                            <h3 className="empty-title">ログイン — Sign Up / Login</h3>
+                            <p className="empty-text">Sign up or login to see your favorites.</p>
                             <button
                                 className="btn-primary"
                                 onClick={() => setVisible(true)}
                                 style={{ marginTop: 16 }}
                             >
                                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20 12V8H6a2 2 0 0 1-2-2c0-1.1.9-2 2-2h12v4" /><path d="M4 6v12c0 1.1.9 2 2 2h14v-4" /><circle cx="18" cy="16" r="1" /></svg>
-                                Connect Wallet
+                                Sign Up / Login
                             </button>
                         </div>
                     ) : loading ? (
                         <div className="loading-container">
                             <div className="spinner"></div>
                         </div>
-                    ) : favorites.length === 0 ? (
+                    ) : mergedLibrary.length === 0 ? (
                         <div className="empty-state">
                             <div className="empty-icon">💔</div>
                             <h3 className="empty-title">まだありません</h3>
@@ -75,7 +141,7 @@ export default function FavoritesPage() {
                         </div>
                     ) : (
                         <div className="manga-grid">
-                            {favorites.map((fav) => (
+                            {mergedLibrary.map((fav) => (
                                 <MangaCard
                                     key={fav.manga_id}
                                     slug={fav.manga_id}

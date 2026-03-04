@@ -1,10 +1,11 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import Header from "@/components/Header";
 import MangaCard from "@/components/MangaCard";
 import { searchAllSources } from "@/lib/sources";
 import { type Manga } from "@/lib/sources/types";
+import { getLocal, setLocal, STORAGE_KEYS } from "@/lib/storage";
 
 // Debounce hook for search
 function useDebounce(value: string, delay: number) {
@@ -16,21 +17,82 @@ function useDebounce(value: string, delay: number) {
     return debouncedValue;
 }
 
+const ITEMS_PER_PAGE = 4;
+const MAX_RECENT_SEARCHES = 8;
+
 export default function BrowsePage() {
     const [mangaList, setMangaList] = useState<Manga[]>([]);
     const [search, setSearch] = useState("");
     const [loading, setLoading] = useState(true);
+    const [error, setError] = useState<string | null>(null);
+    const [currentPage, setCurrentPage] = useState(1);
     const debouncedSearch = useDebounce(search, 500);
+
+    // Recent searches
+    const [recentSearches, setRecentSearches] = useState<string[]>([]);
+    const [showRecent, setShowRecent] = useState(false);
+    const searchRef = useRef<HTMLDivElement>(null);
+
+    // Load recent searches on mount
+    useEffect(() => {
+        setRecentSearches(getLocal<string[]>(STORAGE_KEYS.RECENT_SEARCHES, []));
+    }, []);
+
+    // Close recent dropdown on outside click
+    useEffect(() => {
+        const handleClick = (e: MouseEvent) => {
+            if (searchRef.current && !searchRef.current.contains(e.target as Node)) {
+                setShowRecent(false);
+            }
+        };
+        document.addEventListener("mousedown", handleClick);
+        return () => document.removeEventListener("mousedown", handleClick);
+    }, []);
+
+    // Save a search to recent
+    const saveRecentSearch = useCallback((query: string) => {
+        const trimmed = query.trim();
+        if (!trimmed || trimmed.length < 2) return;
+
+        const existing = getLocal<string[]>(STORAGE_KEYS.RECENT_SEARCHES, []);
+        const filtered = existing.filter(s => s.toLowerCase() !== trimmed.toLowerCase());
+        const updated = [trimmed, ...filtered].slice(0, MAX_RECENT_SEARCHES);
+        setLocal(STORAGE_KEYS.RECENT_SEARCHES, updated);
+        setRecentSearches(updated);
+    }, []);
+
+    // Remove a recent search
+    const removeRecentSearch = useCallback((query: string) => {
+        const existing = getLocal<string[]>(STORAGE_KEYS.RECENT_SEARCHES, []);
+        const updated = existing.filter(s => s !== query);
+        setLocal(STORAGE_KEYS.RECENT_SEARCHES, updated);
+        setRecentSearches(updated);
+    }, []);
+
+    // Clear all recent searches
+    const clearRecentSearches = useCallback(() => {
+        setLocal(STORAGE_KEYS.RECENT_SEARCHES, []);
+        setRecentSearches([]);
+    }, []);
+
+    const totalPages = Math.max(1, Math.ceil(mangaList.length / ITEMS_PER_PAGE));
+    const startIdx = (currentPage - 1) * ITEMS_PER_PAGE;
+    const visibleManga = mangaList.slice(startIdx, startIdx + ITEMS_PER_PAGE);
 
     const fetchManga = useCallback(async (query: string) => {
         setLoading(true);
+        setError(null);
+        setCurrentPage(1); // Reset to page 1 on new search
         try {
-            // Use multi-source search
             const results = await searchAllSources(query);
             setMangaList(results);
 
-            // Fetch stats (ratings) only for MangaDex items (WeebCentral doesn't have reliable stats API yet)
-            // We can optimize this later
+            // Save non-empty queries to recent searches
+            if (query.trim().length >= 2) {
+                saveRecentSearch(query);
+            }
+
+            // Fetch stats (ratings) only for MangaDex items
             const mangadexIds = results.filter(m => m.sourceStr === 'mangadex').map(m => m.id);
             if (mangadexIds.length > 0) {
                 const { getMangaStatistics } = await import("@/lib/mangadex");
@@ -45,16 +107,22 @@ export default function BrowsePage() {
                     };
                 }));
             }
-        } catch (e) {
+        } catch (e: any) {
             console.error("Search failed", e);
+            setError(e.message || "Search failed");
         }
         setLoading(false);
-    }, []);
+    }, [saveRecentSearch]);
 
-    // Initial load & Search effect
     useEffect(() => {
         fetchManga(debouncedSearch);
     }, [debouncedSearch, fetchManga]);
+
+    // Handle selecting a recent search
+    const handleRecentClick = (query: string) => {
+        setSearch(query);
+        setShowRecent(false);
+    };
 
     return (
         <>
@@ -66,29 +134,76 @@ export default function BrowsePage() {
                         <p className="section-subtitle">Browse Series — {loading ? "Loading..." : `${mangaList.length} Results`}</p>
                     </div>
 
-                    {/* Search */}
-                    <div className="search-bar">
-                        <span className="search-icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8" /><line x1="21" x2="16.65" y1="21" y2="16.65" /></svg></span>
-                        <input
-                            type="text"
-                            placeholder="マンガを検索... Search for your favorite manga..."
-                            value={search}
-                            onChange={(e) => setSearch(e.target.value)}
-                        />
+                    {/* Search with Recent Searches */}
+                    <div className="search-bar-wrapper" ref={searchRef}>
+                        <div className="search-bar">
+                            <span className="search-icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8" /><line x1="21" x2="16.65" y1="21" y2="16.65" /></svg></span>
+                            <input
+                                type="text"
+                                placeholder="マンガを検索... Search for your favorite manga..."
+                                value={search}
+                                onChange={(e) => setSearch(e.target.value)}
+                                onFocus={() => setShowRecent(true)}
+                            />
+                            {search && (
+                                <button
+                                    className="search-clear"
+                                    onClick={() => { setSearch(""); setShowRecent(true); }}
+                                    aria-label="Clear search"
+                                >
+                                    ✕
+                                </button>
+                            )}
+                        </div>
+
+                        {/* Recent Searches Dropdown */}
+                        {showRecent && recentSearches.length > 0 && !search && (
+                            <div className="recent-searches">
+                                <div className="recent-searches-header">
+                                    <span className="recent-searches-title">
+                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10" /><polyline points="12 6 12 12 16 14" /></svg>
+                                        最近の検索 Recent
+                                    </span>
+                                    <button className="recent-searches-clear" onClick={clearRecentSearches}>
+                                        Clear All
+                                    </button>
+                                </div>
+                                {recentSearches.map((q) => (
+                                    <div key={q} className="recent-search-item">
+                                        <button
+                                            className="recent-search-text"
+                                            onClick={() => handleRecentClick(q)}
+                                        >
+                                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8" /><line x1="21" x2="16.65" y1="21" y2="16.65" /></svg>
+                                            {q}
+                                        </button>
+                                        <button
+                                            className="recent-search-remove"
+                                            onClick={(e) => { e.stopPropagation(); removeRecentSearch(q); }}
+                                            aria-label={`Remove ${q}`}
+                                        >
+                                            ✕
+                                        </button>
+                                    </div>
+                                ))}
+                            </div>
+                        )}
                     </div>
+
+                    {/* Error State */}
+                    {error && (
+                        <div className="error-container" style={{ margin: "40px auto", maxWidth: 600 }}>
+                            <p className="error-message">{error}</p>
+                            <p style={{ fontSize: 14, marginTop: 8, color: "var(--text-muted)" }}>
+                                If you are on Web, this is likely a CORS issue. Please use the Mobile App.
+                            </p>
+                        </div>
+                    )}
 
                     {/* Grid */}
                     {loading ? (
-                        <div
-                            style={{
-                                display: "grid",
-                                gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))",
-                                gap: 24,
-                                maxWidth: 1400,
-                                margin: "0 auto",
-                            }}
-                        >
-                            {Array.from({ length: 12 }).map((_, i) => (
+                        <div className="manga-grid" style={{ gridTemplateColumns: "repeat(2, 1fr)" }}>
+                            {Array.from({ length: ITEMS_PER_PAGE }).map((_, i) => (
                                 <div
                                     key={i}
                                     className="loading-skeleton"
@@ -98,32 +213,50 @@ export default function BrowsePage() {
                         </div>
                     ) : (
                         <>
-                            <div className="manga-grid">
-                                {mangaList.map((manga) => (
-                                    <MangaCard
-                                        key={manga.id}
-                                        slug={manga.id} // We use ID as slug now
-                                        title={manga.title}
-                                        cover={manga.cover}
-                                        genres={manga.tags.slice(0, 3)}
-                                        follows={manga.follows}
-                                        rating={manga.rating}
-                                        source={manga.sourceStr}
-                                    />
-                                ))}
-                            </div>
-                            {mangaList.length === 0 && !loading && (
-                                <div
-                                    style={{
-                                        textAlign: "center",
-                                        padding: 60,
-                                        color: "var(--text-muted)",
-                                    }}
-                                >
+                            {!error && (
+                                <div className="manga-grid" style={{ gridTemplateColumns: "repeat(2, 1fr)" }}>
+                                    {visibleManga.map((manga) => (
+                                        <MangaCard
+                                            key={manga.id}
+                                            slug={manga.id}
+                                            title={manga.title}
+                                            cover={manga.cover}
+                                            genres={manga.tags.slice(0, 3)}
+                                            follows={manga.follows}
+                                            rating={manga.rating}
+                                            source={manga.sourceStr}
+                                        />
+                                    ))}
+                                </div>
+                            )}
+
+                            {/* Pagination Controls */}
+                            {!error && mangaList.length > 0 && (
+                                <div className="pagination-controls">
+                                    <button
+                                        className="pagination-arrow"
+                                        onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                                        disabled={currentPage <= 1}
+                                    >
+                                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6" /></svg>
+                                    </button>
+                                    <span className="pagination-info">
+                                        Page {currentPage} of {totalPages}
+                                    </span>
+                                    <button
+                                        className="pagination-arrow"
+                                        onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                                        disabled={currentPage >= totalPages}
+                                    >
+                                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 18 15 12 9 6" /></svg>
+                                    </button>
+                                </div>
+                            )}
+
+                            {mangaList.length === 0 && !loading && !error && (
+                                <div style={{ textAlign: "center", padding: 60, color: "var(--text-muted)" }}>
                                     <div style={{ fontSize: 48, marginBottom: 16 }}><svg width="48" height="48" viewBox="0 0 24 24" fill="var(--sakura-pink)" stroke="none" opacity="0.5"><path d="M12 2C9.5 5 7 8 7 11a5 5 0 0 0 10 0c0-3-2.5-6-5-9z" /></svg></div>
-                                    <p style={{ fontFamily: "var(--font-jp)", fontSize: 18 }}>
-                                        見つかりませんでした
-                                    </p>
+                                    <p style={{ fontFamily: "var(--font-jp)", fontSize: 18 }}>見つかりませんでした</p>
                                     <p style={{ fontSize: 14 }}>No manga found.</p>
                                 </div>
                             )}

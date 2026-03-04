@@ -9,6 +9,15 @@ const config: CapacitorConfig = {
       enabled: true,
     },
   },
+  server: {
+    hostname: 'sakura.milla.so',
+    androidScheme: 'https',
+    cleartext: true,
+    allowNavigation: ['*']
+  },
+  android: {
+    allowMixedContent: true
+  }
 };
 
 export default config;

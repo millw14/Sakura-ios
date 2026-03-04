@@ -1,33 +1,285 @@
 "use client";
 
 import Link from "next/link";
-import { useState, useEffect, useCallback, Suspense } from "react";
-import { useSearchParams } from "next/navigation";
+import { useState, useEffect, useCallback, useRef, Suspense } from "react";
+import { useSearchParams, useRouter } from "next/navigation";
 import { useWallet } from "@solana/wallet-adapter-react";
-import { useWalletModal } from "@solana/wallet-adapter-react-ui";
+import { useSakuraWalletModal } from "@/components/SakuraWalletModal";
 import { checkPassStatus, formatPassTimeRemaining } from "@/lib/pass-check";
 import { getSource } from "@/lib/sources";
+import { type Chapter } from "@/lib/sources/types";
 import { Browser } from '@capacitor/browser';
+import { getLocal, setLocal, STORAGE_KEYS, setChapterProgress as saveChapterProgress, getChapterProgress } from "@/lib/storage";
+import { downloadManager } from "@/lib/downloads";
+import ChapterComments from "@/components/ChapterComments";
+
+type ReadingMode = 'scroll' | 'page';
+
+/* ─── Mode Selection Modal ─── */
+function ModeSelectionModal({ onSelect }: { onSelect: (mode: ReadingMode) => void }) {
+    return (
+        <div className="reading-mode-modal-overlay">
+            <div className="reading-mode-modal">
+                <h2>読み方を選んでください</h2>
+                <p>How would you like to read?</p>
+                <div className="reading-mode-options">
+                    <button className="reading-mode-option" onClick={() => onSelect('scroll')}>
+                        <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="var(--sakura-pink)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                            <path d="M12 5v14" /><path d="m19 12-7 7-7-7" />
+                        </svg>
+                        <span className="mode-title">スクロール</span>
+                        <span className="mode-subtitle">Infinite Scroll</span>
+                        <span className="mode-desc">Scroll through all pages continuously</span>
+                    </button>
+                    <button className="reading-mode-option" onClick={() => onSelect('page')}>
+                        <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="var(--purple-accent)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                            <path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1 0-5H20" />
+                        </svg>
+                        <span className="mode-title">ページめくり</span>
+                        <span className="mode-subtitle">Page by Page</span>
+                        <span className="mode-desc">Swipe or tap to turn pages like a book</span>
+                    </button>
+                </div>
+            </div>
+        </div>
+    );
+}
+
+/* ─── Next Chapter Prompt (Page Mode Overlay) ─── */
+function NextChapterOverlay({ onNext, onBack }: { onNext: () => void; onBack: () => void }) {
+    return (
+        <div className="next-chapter-overlay">
+            <div className="next-chapter-overlay-content">
+                <h2>章が終わりました</h2>
+                <p>Chapter Complete!</p>
+                <button className="btn-primary next-chapter-btn" onClick={onNext}>
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <polygon points="5 4 15 12 5 20 5 4" /><line x1="19" x2="19" y1="5" y2="19" />
+                    </svg>
+                    次の章 — Next Chapter
+                </button>
+                <button className="btn-secondary" onClick={onBack} style={{ marginTop: 12 }}>
+                    ← シリーズに戻る — Back to Series
+                </button>
+            </div>
+        </div>
+    );
+}
+
+/* ─── Page-by-Page Reader (Book Mode) ─── */
+function PageReader({ pages, currentPage, setCurrentPage, onLastPagePass, onPlaceholderDetected }: {
+    pages: string[];
+    currentPage: number;
+    setCurrentPage: (p: number) => void;
+    onLastPagePass?: () => void;
+    onPlaceholderDetected?: () => void;
+}) {
+    const containerRef = useRef<HTMLDivElement>(null);
+    const [animDir, setAnimDir] = useState<'forward' | 'backward' | null>(null);
+    const [animating, setAnimating] = useState(false);
+
+    // Swipe tracking
+    const touchStartX = useRef(0);
+    const touchStartY = useRef(0);
+    const isSwiping = useRef(false);
+
+    // Preload adjacent images (±2)
+    useEffect(() => {
+        const toPreload = [
+            currentPage,     // current (ensure loaded)
+            currentPage + 1, // next
+            currentPage + 2, // next+1
+            currentPage - 1, // previous
+        ].filter(p => p >= 1 && p <= pages.length);
+
+        toPreload.forEach(p => {
+            const img = new Image();
+            img.src = pages[p - 1];
+        });
+    }, [currentPage, pages]);
+
+    const goNext = useCallback(() => {
+        if (animating) return;
+        if (currentPage < pages.length) {
+            setAnimating(true);
+            setAnimDir('forward');
+            setTimeout(() => {
+                setCurrentPage(currentPage + 1);
+                setAnimDir(null);
+                setAnimating(false);
+            }, 350);
+        } else if (onLastPagePass) {
+            onLastPagePass();
+        }
+    }, [currentPage, pages.length, setCurrentPage, onLastPagePass, animating]);
+
+    const goPrev = useCallback(() => {
+        if (animating) return;
+        if (currentPage > 1) {
+            setAnimating(true);
+            setAnimDir('backward');
+            setTimeout(() => {
+                setCurrentPage(currentPage - 1);
+                setAnimDir(null);
+                setAnimating(false);
+            }, 350);
+        }
+    }, [currentPage, setCurrentPage, animating]);
+
+    // Touch handlers
+    const handleTouchStart = useCallback((e: React.TouchEvent) => {
+        touchStartX.current = e.touches[0].clientX;
+        touchStartY.current = e.touches[0].clientY;
+        isSwiping.current = false;
+    }, []);
+
+    const handleTouchMove = useCallback((e: React.TouchEvent) => {
+        const dx = Math.abs(e.touches[0].clientX - touchStartX.current);
+        const dy = Math.abs(e.touches[0].clientY - touchStartY.current);
+        // Lock to horizontal swipe
+        if (dx > dy && dx > 15) {
+            isSwiping.current = true;
+        }
+    }, []);
+
+    const handleTouchEnd = useCallback((e: React.TouchEvent) => {
+        if (!isSwiping.current) return;
+        const diff = touchStartX.current - e.changedTouches[0].clientX;
+        if (Math.abs(diff) > 40) {
+            if (diff > 0) goNext();
+            else goPrev();
+        }
+    }, [goNext, goPrev]);
+
+    // Tap zones (left 30%, right 70%)
+    const handleTap = useCallback((e: React.MouseEvent) => {
+        if (animating) return;
+        const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+        const x = e.clientX - rect.left;
+        const pct = x / rect.width;
+        if (pct < 0.3) goPrev();
+        else if (pct > 0.7) goNext();
+    }, [goNext, goPrev, animating]);
+
+    // Keyboard navigation
+    useEffect(() => {
+        const handleKey = (e: KeyboardEvent) => {
+            if (e.key === 'ArrowLeft') goPrev();
+            if (e.key === 'ArrowRight') goNext();
+        };
+        window.addEventListener('keydown', handleKey);
+        return () => window.removeEventListener('keydown', handleKey);
+    }, [goNext, goPrev]);
+
+    // Determine animation class
+    const pageClass = animDir === 'forward'
+        ? 'page-turn-forward'
+        : animDir === 'backward'
+            ? 'page-turn-backward'
+            : '';
+
+    return (
+        <div
+            ref={containerRef}
+            className="page-reader"
+            onTouchStart={handleTouchStart}
+            onTouchMove={handleTouchMove}
+            onTouchEnd={handleTouchEnd}
+            onClick={handleTap}
+        >
+            <div className={`page-reader-page ${pageClass}`}>
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                    src={pages[currentPage - 1]}
+                    alt={`Page ${currentPage}`}
+                    draggable={false}
+                    referrerPolicy="no-referrer"
+                    onLoad={(e) => {
+                        const img = e.currentTarget;
+                        // Catch known MangaDex 5-page/takedown placeholder dimensions (e.g. 679x5975 Bilibili ghost strips)
+                        if (img.naturalWidth === 679 && img.naturalHeight === 5975 && onPlaceholderDetected) {
+                            onPlaceholderDetected();
+                        }
+                    }}
+                />
+            </div>
+
+            {/* Page counter */}
+            <div className="page-reader-counter">
+                {currentPage} / {pages.length}
+            </div>
+
+            <button
+                className="page-nav-arrow page-nav-prev"
+                onClick={(e) => { e.stopPropagation(); goPrev(); }}
+                disabled={currentPage <= 1}
+                aria-label="Previous page"
+            >
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="15 18 9 12 15 6" /></svg>
+            </button>
+            <button
+                className="page-nav-arrow page-nav-next"
+                onClick={(e) => { e.stopPropagation(); goNext(); }}
+                disabled={currentPage >= pages.length && !onLastPagePass}
+                aria-label="Next page"
+            >
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="9 18 15 12 9 6" /></svg>
+            </button>
+        </div>
+    );
+}
 
 function ReaderContent() {
     const searchParams = useSearchParams();
+    const router = useRouter();
     const chapterId = searchParams.get("id");
     const mangaId = searchParams.get("manga");
     const sourceStr = searchParams.get("source") || "weebcentral";
 
     const { publicKey } = useWallet();
-    const { setVisible } = useWalletModal();
+    const { setVisible } = useSakuraWalletModal();
 
     const [pages, setPages] = useState<string[]>([]);
     const [headerVisible, setHeaderVisible] = useState(true);
     const [currentPage, setCurrentPage] = useState(1);
-    const [hasAccess, setHasAccess] = useState<boolean | null>(null); // null = checking
+    const [hasAccess, setHasAccess] = useState<boolean | null>(null);
     const [passExpiry, setPassExpiry] = useState<Date | null>(null);
     const [loading, setLoading] = useState(true);
     const [isPremiumChapter, setIsPremiumChapter] = useState(false);
-
     const [externalUrl, setExternalUrl] = useState<string | null>(null);
     const [error, setError] = useState<string | null>(null);
+
+    // Reading mode state
+    const [readingMode, setReadingMode] = useState<ReadingMode | null>(null);
+    const [showModeModal, setShowModeModal] = useState(false);
+
+    // Next chapter state
+    const [allChapters, setAllChapters] = useState<Chapter[]>([]);
+    const [nextChapter, setNextChapter] = useState<Chapter | null>(null);
+    const [showNextChapterOverlay, setShowNextChapterOverlay] = useState(false);
+
+    // Page indicator visibility (auto-hide after 2s)
+    const [showPageIndicator, setShowPageIndicator] = useState(false);
+    const pageIndicatorTimer = useRef<NodeJS.Timeout | null>(null);
+
+    // Resume toast
+    const [resumeToast, setResumeToast] = useState<string | null>(null);
+
+    // Load reading mode preference
+    useEffect(() => {
+        const saved = getLocal<string | null>(STORAGE_KEYS.READING_MODE, null);
+        if (saved === 'scroll' || saved === 'page') {
+            setReadingMode(saved);
+        } else {
+            setShowModeModal(true);
+        }
+    }, []);
+
+    const handleModeSelect = (mode: ReadingMode) => {
+        setReadingMode(mode);
+        setLocal(STORAGE_KEYS.READING_MODE, mode);
+        setShowModeModal(false);
+    };
 
     // Check Access & Fetch Content
     useEffect(() => {
@@ -44,43 +296,70 @@ function ReaderContent() {
                 setError(null);
                 setExternalUrl(null);
 
+                // Check local cache first
+                const cache = getLocal<Record<string, string[]>>(STORAGE_KEYS.CHAPTER_CACHE, {});
+                const isCached = cache[chapterId] && cache[chapterId].length > 0;
+
                 const source = getSource(sourceStr);
                 let requiresPass = false;
+                let manga: any = null;
 
-                // 1. Check Premium Status & External URL (only if mangaId exists)
-                // For now, only MangaDex supports "Premium/Pass" logic in our app
-                // WeebCentral and others are assumed free or we apply general rules later.
-                if (sourceStr === 'mangadex' && mangaId) {
-                    // Use dynamic import for source-specific logic if needed, or just use the source interface
-                    // But our Premium logic is business logic ON TOP of the source.
-                    // So we fetch the chapters to check "latest" status.
+                // Always fetch chapter list for "next chapter" feature
+                let chapterList: Chapter[] = [];
+                if (mangaId) {
+                    try {
+                        chapterList = await source.getChapters(mangaId, 500, 0);
+                        if (isMounted) setAllChapters(chapterList);
 
-                    const [manga, chapters] = await Promise.all([
-                        source.getMangaDetails(mangaId),
-                        source.getChapters(mangaId, 100, 0)
-                    ]);
-
-                    // Find current chapter to check for external URL
-                    const currentChapter = chapters.find(ch => ch.id === chapterId);
-                    if ((currentChapter as any)?.externalUrl) {
-                        if (isMounted) {
-                            setExternalUrl((currentChapter as any).externalUrl);
-                            setLoading(false);
+                        // Find next chapter (chapters are newest-first, so "next" = index - 1)
+                        const currentIdx = chapterList.findIndex(ch => ch.id === chapterId);
+                        if (currentIdx > 0) {
+                            if (isMounted) setNextChapter(chapterList[currentIdx - 1]);
                         }
-                        return; // Stop loading here, we can't read it in-app
-                    }
-
-                    if (manga?.status === "ongoing") {
-                        const latestChapters = chapters.slice(0, 3);
-                        const isLatest = latestChapters.some(ch => ch.id === chapterId);
-                        if (isLatest) requiresPass = true;
-                    }
+                    } catch (e) { console.warn("Failed to fetch chapter list", e); }
                 }
 
-                // 2. Check User Pass (Only if requiresPass is true)
+                // If cached, serve from cache
+                if (isCached) {
+                    if (isMounted) {
+                        setPages(cache[chapterId]);
+                        setHasAccess(true);
+                        setLoading(false);
+                    }
+                    return;
+                }
+
+                if (sourceStr === 'mangadex') {
+                    const { getChapterDetails } = await import("@/lib/mangadex");
+                    const chapterDetails = await getChapterDetails(chapterId);
+
+                    if (chapterDetails?.externalUrl) {
+                        if (isMounted) {
+                            setExternalUrl(chapterDetails.externalUrl);
+                            setLoading(false);
+                        }
+                        return;
+                    }
+
+                    if (mangaId) {
+                        const mangaDetails = await source.getMangaDetails(mangaId);
+                        manga = mangaDetails;
+
+                        if (manga?.status === "ongoing") {
+                            const latestChapters = chapterList.slice(0, 3);
+                            const isLatest = latestChapters.some(ch => ch.id === chapterId);
+                            if (isLatest) requiresPass = true;
+                        }
+                    }
+                } else if (mangaId) {
+                    try {
+                        manga = await source.getMangaDetails(mangaId);
+                    } catch (e) { console.warn("Failed to fetch manga details", e); }
+                }
+
                 let userHasPass = false;
                 if (requiresPass) {
-                    setIsPremiumChapter(true); // Flag UI
+                    setIsPremiumChapter(true);
                     if (publicKey) {
                         const status = await checkPassStatus(publicKey.toBase58());
                         userHasPass = status.valid;
@@ -92,12 +371,52 @@ function ReaderContent() {
 
                 if (isMounted) setHasAccess(userHasPass);
 
-                // 3. Load Pages
                 if (userHasPass) {
-                    const urls = await source.getChapterPages(chapterId);
+                    let urls: string[] = [];
+                    const dlTask = downloadManager.getTask(chapterId);
+                    if (dlTask && dlTask.state === 'completed') {
+                        console.log("Loading offline chapter from filesystem...");
+                        for (let i = 0; i < dlTask.pages.length; i++) {
+                            const localUrl = await downloadManager.getLocalPageUrl(mangaId!, chapterId!, i);
+                            if (localUrl) urls.push(localUrl);
+                        }
+                    }
+
+                    if (urls.length === 0) {
+                        urls = await source.getChapterPages(chapterId);
+                    }
+
                     if (isMounted) {
                         if (urls.length > 0) {
                             setPages(urls);
+
+                            // Cache pages locally (keep last 20 chapters)
+                            try {
+                                const existingCache = getLocal<Record<string, string[]>>(STORAGE_KEYS.CHAPTER_CACHE, {});
+                                const entries = Object.entries(existingCache);
+                                if (entries.length > 20) {
+                                    const trimmed = Object.fromEntries(entries.slice(-19));
+                                    trimmed[chapterId!] = urls;
+                                    setLocal(STORAGE_KEYS.CHAPTER_CACHE, trimmed);
+                                } else {
+                                    existingCache[chapterId!] = urls;
+                                    setLocal(STORAGE_KEYS.CHAPTER_CACHE, existingCache);
+                                }
+                            } catch (e) { console.warn("Cache save failed", e); }
+
+                            // Save to History
+                            try {
+                                const history = getLocal(STORAGE_KEYS.HISTORY, []);
+                                const newEntry = {
+                                    mangaId,
+                                    chapterId,
+                                    title: manga?.title || "Unknown Title",
+                                    cover: manga?.cover || "/placeholder.png",
+                                    lastReadAt: Date.now()
+                                };
+                                const filtered = history.filter((h: any) => h.mangaId !== mangaId);
+                                setLocal(STORAGE_KEYS.HISTORY, [newEntry, ...filtered].slice(0, 50));
+                            } catch (e) { console.error("Failed to save history", e); }
                         } else {
                             throw new Error("No pages returned from Source.");
                         }
@@ -113,29 +432,115 @@ function ReaderContent() {
         }
 
         checkAccessAndLoad();
-
         return () => { isMounted = false; };
     }, [chapterId, mangaId, publicKey, sourceStr]);
 
+    // Navigate to next chapter
+    const goToNextChapter = useCallback(() => {
+        if (nextChapter && mangaId) {
+            window.scrollTo({ top: 0 });
+            setCurrentPage(1);
+            setShowNextChapterOverlay(false);
+            router.push(`/chapter?id=${nextChapter.id}&manga=${mangaId}&source=${sourceStr}`);
+        }
+    }, [nextChapter, mangaId, sourceStr, router]);
+
+    // Go back to series
+    const goBackToSeries = useCallback(() => {
+        router.push(`/title?id=${mangaId}&source=${sourceStr}`);
+    }, [mangaId, sourceStr, router]);
+
+    // Scroll-mode header hide + progress tracking + page indicator (throttled to 200ms)
+    const scrollThrottleRef = useRef(false);
     const handleScroll = useCallback(() => {
+        if (scrollThrottleRef.current) return;
+        scrollThrottleRef.current = true;
+        setTimeout(() => { scrollThrottleRef.current = false; }, 200);
+
         const scrollY = window.scrollY;
         setHeaderVisible(scrollY < 100);
 
-        const images = document.querySelectorAll(".reader-page");
-        images.forEach((img, idx) => {
-            const rect = img.getBoundingClientRect();
-            if (rect.top < window.innerHeight / 2 && rect.bottom > 0) {
-                setCurrentPage(idx + 1);
+        if (readingMode === 'scroll') {
+            const images = document.querySelectorAll(".reader-page");
+            images.forEach((img, idx) => {
+                const rect = img.getBoundingClientRect();
+                if (rect.top < window.innerHeight / 2 && rect.bottom > 0) {
+                    setCurrentPage(idx + 1);
+                }
+            });
+
+            // Show floating page indicator
+            setShowPageIndicator(true);
+            if (pageIndicatorTimer.current) clearTimeout(pageIndicatorTimer.current);
+            pageIndicatorTimer.current = setTimeout(() => setShowPageIndicator(false), 2000);
+
+            // Track scroll progress
+            const scrollHeight = document.documentElement.scrollHeight - window.innerHeight;
+            if (scrollHeight > 0 && mangaId && chapterId) {
+                const progress = (scrollY / scrollHeight) * 100;
+                saveChapterProgress(mangaId, chapterId, progress);
             }
-        });
-    }, []);
+        }
+    }, [readingMode, mangaId, chapterId]);
 
     useEffect(() => {
         window.addEventListener("scroll", handleScroll, { passive: true });
         return () => window.removeEventListener("scroll", handleScroll);
     }, [handleScroll]);
 
+    // Track page-mode progress
+    useEffect(() => {
+        if (readingMode === 'page' && pages.length > 0 && mangaId && chapterId) {
+            const progress = (currentPage / pages.length) * 100;
+            saveChapterProgress(mangaId, chapterId, progress);
+        }
+    }, [currentPage, pages.length, readingMode, mangaId, chapterId]);
+
+    // Auto-resume reading position
+    useEffect(() => {
+        if (!pages.length || !mangaId || !chapterId || !readingMode) return;
+
+        const savedProgress = getChapterProgress(mangaId, chapterId);
+        if (savedProgress > 5 && savedProgress < 95) {
+            if (readingMode === 'scroll') {
+                // Delay to let images start loading
+                const timer = setTimeout(() => {
+                    const scrollHeight = document.documentElement.scrollHeight - window.innerHeight;
+                    const targetScroll = (savedProgress / 100) * scrollHeight;
+                    window.scrollTo({ top: targetScroll, behavior: 'smooth' });
+
+                    const resumePage = Math.ceil((savedProgress / 100) * pages.length);
+                    setResumeToast(`Resumed at page ${resumePage} / ${pages.length}`);
+                    setTimeout(() => setResumeToast(null), 3000);
+                }, 800);
+                return () => clearTimeout(timer);
+            } else {
+                // Page mode: restore page number
+                const resumePage = Math.max(1, Math.ceil((savedProgress / 100) * pages.length));
+                setCurrentPage(resumePage);
+                setResumeToast(`Resumed at page ${resumePage} / ${pages.length}`);
+                setTimeout(() => setResumeToast(null), 3000);
+            }
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [pages.length, readingMode]);
+
     if (!chapterId) return null;
+
+    // Mode selection modal
+    if (showModeModal) {
+        return <ModeSelectionModal onSelect={handleModeSelect} />;
+    }
+
+    // Next chapter overlay (page mode)
+    if (showNextChapterOverlay && nextChapter) {
+        return (
+            <NextChapterOverlay
+                onNext={goToNextChapter}
+                onBack={goBackToSeries}
+            />
+        );
+    }
 
     if (error) {
         return (
@@ -145,14 +550,14 @@ function ReaderContent() {
                 <button className="btn-primary" onClick={() => window.location.reload()}>
                     Retry
                 </button>
-                <Link href={`/title?id=${mangaId}`} className="btn-secondary">
-                    Back to Series
-                </Link>
+                <button className="btn-secondary" onClick={() => router.back()}>
+                    ← Go Back
+                </button>
             </div>
         );
     }
 
-    if (externalUrl) {
+    if (externalUrl && hasAccess) {
         return (
             <div className="pass-gate">
                 <div className="pass-gate-content">
@@ -168,26 +573,24 @@ function ReaderContent() {
                         Official Source Only
                     </h2>
                     <p style={{ fontSize: 16, color: "var(--text-secondary)", marginBottom: 16, textAlign: "center" }}>
-                        This chapter is hosted on an official publisher's website (e.g., MangaPlus).
-                        <br />It cannot be read inside Sakura.
+                        This content is hosted on an official site (e.g. MangaPlus).<br />
+                        Your <strong>Sakura Premium</strong> allows you to access it.
                     </p>
-
                     <button
                         onClick={() => Browser.open({ url: externalUrl })}
                         className="btn-primary"
                         style={{ minWidth: 280, justifyContent: "center" }}
                     >
-                        Read on Official Site (In-App)
+                        Open Official Site
                     </button>
-                    <Link href={`/title?id=${mangaId}`} style={{ fontSize: 13, color: "var(--text-muted)", marginTop: 16 }}>
-                        ← Back to Series
-                    </Link>
+                    <button onClick={() => router.back()} style={{ fontSize: 13, color: "var(--text-muted)", marginTop: 16, background: "none", border: "none", cursor: "pointer" }}>
+                        ← Go Back
+                    </button>
                 </div>
             </div >
         );
     }
 
-    // Pass gate screen
     if (loading) {
         return (
             <div className="reader">
@@ -230,12 +633,12 @@ function ReaderContent() {
                                 onClick={() => setVisible(true)}
                             >
                                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20 12V8H6a2 2 0 0 1-2-2c0-1.1.9-2 2-2h12v4" /><path d="M4 6v12c0 1.1.9 2 2 2h14v-4" /><circle cx="18" cy="16" r="1" /></svg>
-                                ウォレット接続 — Connect Wallet
+                                ログイン — Sign Up / Login
                             </button>
                         )}
-                        <Link href={`/title?id=${mangaId}`} style={{ fontSize: 13, color: "var(--text-muted)", marginTop: 8 }}>
-                            ← シリーズに戻る — Back to Series
-                        </Link>
+                        <button onClick={() => router.back()} style={{ fontSize: 13, color: "var(--text-muted)", marginTop: 8, background: "none", border: "none", cursor: "pointer" }}>
+                            ← 戻る — Go Back
+                        </button>
                     </div>
                 </div>
             </div>
@@ -244,14 +647,30 @@ function ReaderContent() {
 
     return (
         <div className="reader">
+            {/* Header */}
             <div className={`reader-header ${headerVisible ? "" : "hidden"}`}>
-                <Link href={`/title?id=${mangaId}&source=${sourceStr}`} className="reader-back">
+                <button onClick={() => router.back()} className="reader-back">
                     ← 戻る Back
-                </Link>
+                </button>
                 <span className="reader-title">
-                    Chapter Viewer
+                    {readingMode === 'page' ? 'ページめくり Page Mode' : 'スクロール Scroll Mode'}
                 </span>
                 <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                    {/* Mode toggle */}
+                    <button
+                        onClick={() => {
+                            const newMode: ReadingMode = readingMode === 'scroll' ? 'page' : 'scroll';
+                            setReadingMode(newMode);
+                            setLocal(STORAGE_KEYS.READING_MODE, newMode);
+                        }}
+                        style={{
+                            background: "none", border: "1px solid var(--border-subtle)",
+                            borderRadius: "var(--radius-sm)", padding: "4px 8px",
+                            color: "var(--text-muted)", cursor: "pointer", fontSize: 11
+                        }}
+                    >
+                        {readingMode === 'scroll' ? '📖 Page' : '📜 Scroll'}
+                    </button>
                     {passExpiry && (
                         <span style={{ fontSize: 11, color: "#4ade80" }}>
                             🎴 {formatPassTimeRemaining(passExpiry)}
@@ -263,26 +682,85 @@ function ReaderContent() {
                 </div>
             </div>
 
-            <div className="reader-pages">
-                {pages.map((pageUrl, idx) => (
-                    <div key={idx} className="reader-page">
-                        {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <img
-                            src={pageUrl}
-                            alt={`Page ${idx + 1}`}
-                            loading={idx < 3 ? "eager" : "lazy"}
-                        />
-                    </div>
-                ))}
-            </div>
-
-            {pages.length > 0 && (
-                <div className="reader-end">
-                    <h3>おわり — End of Chapter</h3>
-                    <Link href={`/title?id=${mangaId}&source=${sourceStr}`} className="btn-primary">
-                        ← シリーズに戻る — Back to Series
-                    </Link>
+            {/* Reader Content */}
+            {readingMode === 'page' ? (
+                <PageReader
+                    pages={pages}
+                    currentPage={currentPage}
+                    setCurrentPage={setCurrentPage}
+                    onLastPagePass={() => setShowNextChapterOverlay(true)}
+                    onPlaceholderDetected={() => setExternalUrl("https://mangadex.org")}
+                />
+            ) : (
+                <div className="scroll-reader">
+                    {pages.map((url, index) => (
+                        <div key={index} className="reader-page" id={`page-${index + 1}`}>
+                            {/* eslint-disable-next-line @next/next/no-img-element */}
+                            <img
+                                src={url}
+                                alt={`Page ${index + 1}`}
+                                loading={index < 3 ? "eager" : "lazy"}
+                                referrerPolicy="no-referrer"
+                                onLoad={(e) => {
+                                    const img = e.currentTarget;
+                                    if (img.naturalWidth === 679 && img.naturalHeight === 5975) {
+                                        setExternalUrl("https://mangadex.org");
+                                    }
+                                }}
+                            />
+                        </div>
+                    ))}
                 </div>
+            )}
+
+            {/* Floating Page Indicator (scroll mode) */}
+            {readingMode === 'scroll' && pages.length > 0 && (
+                <div className={`floating-page-indicator ${showPageIndicator ? 'visible' : ''}`}>
+                    {currentPage} / {pages.length}
+                </div>
+            )}
+
+            {/* Resume Toast */}
+            {resumeToast && (
+                <div className="resume-toast">
+                    🌸 {resumeToast}
+                </div>
+            )}
+
+            {/* End of Chapter — Next Chapter Prompt */}
+            {pages.length > 0 && readingMode === 'scroll' && (
+                <div className="next-chapter-prompt">
+                    <h3>おわり — End of Chapter</h3>
+                    {nextChapter ? (
+                        <>
+                            <button className="btn-primary next-chapter-btn" onClick={goToNextChapter}>
+                                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                    <polygon points="5 4 15 12 5 20 5 4" /><line x1="19" x2="19" y1="5" y2="19" />
+                                </svg>
+                                次の章 — Next Chapter
+                            </button>
+                            <p style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 8 }}>
+                                Ch. {nextChapter.chapter}{nextChapter.title ? ` — ${nextChapter.title}` : ''}
+                            </p>
+                        </>
+                    ) : (
+                        <p style={{ fontSize: 14, color: "var(--text-muted)", marginTop: 8 }}>
+                            No more chapters available.
+                        </p>
+                    )}
+                    <button
+                        className="btn-secondary"
+                        onClick={goBackToSeries}
+                        style={{ marginTop: 16 }}
+                    >
+                        ← シリーズに戻る — Back to Series
+                    </button>
+                </div>
+            )}
+
+            {/* Chapter Comments */}
+            {pages.length > 0 && mangaId && chapterId && (
+                <ChapterComments mangaId={mangaId} chapterId={chapterId} />
             )}
         </div>
     );

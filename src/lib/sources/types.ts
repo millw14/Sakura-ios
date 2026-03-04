@@ -4,6 +4,7 @@ export interface Manga {
     description: string;
     cover: string;
     author: string;
+    authorId?: string;
     tags: string[];
     status: string;
     year: number;

@@ -1,0 +1,133 @@
+import { Keypair } from "@solana/web3.js";
+import { NativeBiometric } from "capacitor-native-biometric";
+import { Preferences } from "@capacitor/preferences";
+import bs58 from "bs58";
+
+const WALLET_STORAGE_KEY = "sakura_embedded_wallet_secret";
+
+/**
+ * Brute forces a vanity address starting with the given prefix.
+ * WARNING: Lengths > 4 characters will take a very long time on mobile devices.
+ * For 'sak', it should be relatively quick (a few seconds).
+ */
+export async function generateVanityWallet(prefix: string = "sak"): Promise<Keypair> {
+    let keypair: Keypair;
+    let attempt = 0;
+    while (true) {
+        keypair = Keypair.generate();
+        let pubkeyUrlSafe = keypair.publicKey.toBase58();
+
+        // Check if starts with exact case. Base58 has all 's', 'a', 'k'.
+        if (pubkeyUrlSafe.toLowerCase().startsWith(prefix.toLowerCase())) {
+            return keypair;
+        }
+
+        attempt++;
+        // Yield to event loop occasionally to prevent completely freezing the UI
+        if (attempt % 500 === 0) {
+            await new Promise(resolve => setTimeout(resolve, 0));
+        }
+    }
+}
+
+export async function storeWalletSecurely(keypair: Keypair): Promise<void> {
+    const secretKeyBase58 = bs58.encode(keypair.secretKey);
+
+    // Setup biometric credentials
+    try {
+        const isAvailable = await NativeBiometric.isAvailable();
+        if (isAvailable.isAvailable) {
+            await NativeBiometric.setCredentials({
+                username: "SakuraWallet",
+                password: secretKeyBase58,
+                server: "com.millw14.sakura"
+            });
+            // We also save public key to preferences just to know we are "logged in" 
+            // without prompting biometrics
+            await Preferences.set({
+                key: WALLET_STORAGE_KEY + "_pubkey",
+                value: keypair.publicKey.toBase58()
+            });
+            return;
+        }
+    } catch (e) {
+        console.warn("Biometrics not available for saving credentials, falling back to preferences", e);
+    }
+
+    // Fallback: If no biometrics, we have to store it in Preferences
+    await Preferences.set({
+        key: WALLET_STORAGE_KEY,
+        value: secretKeyBase58
+    });
+    await Preferences.set({
+        key: WALLET_STORAGE_KEY + "_pubkey",
+        value: keypair.publicKey.toBase58()
+    });
+}
+
+/**
+ * Gets the securely stored Keypair.
+ * This WILL prompt the user for Biometrics (Face ID/Fingerprint/PIN) if available!
+ */
+export async function getWalletAccountWithBiometrics(): Promise<Keypair | null> {
+    // Try biometrics first
+    try {
+        const isAvailable = await NativeBiometric.isAvailable();
+        if (isAvailable.isAvailable) {
+            const credentials = await NativeBiometric.getCredentials({
+                server: "com.millw14.sakura"
+            });
+            if (credentials && credentials.password) {
+                const secretKey = bs58.decode(credentials.password);
+                return Keypair.fromSecretKey(secretKey);
+            }
+        }
+    } catch (e) {
+        console.warn("Failed to get biometric credentials or user cancelled", e);
+        // If biometrics throws, it means user likely cancelled or failed. Do not fallback to plain text if it exists but failed auth.
+        // We only fallback if NativeBiometric is functionally unsupported on device.
+        if (e && typeof e === 'object' && 'message' in e && String(e.message).includes('cancel')) {
+            throw new Error("User cancelled biometric authentication");
+        }
+    }
+
+    // Fallback to Preferences (only if biometrics genuinely wasn't used/available to save it)
+    const { value } = await Preferences.get({ key: WALLET_STORAGE_KEY });
+    if (value) {
+        const secretKey = bs58.decode(value);
+        return Keypair.fromSecretKey(secretKey);
+    }
+
+    return null;
+}
+
+/**
+ * Checks if a wallet is stored without triggering biometric auth.
+ * Returns the public key if found, otherwise null.
+ */
+export async function getStoredPublicKey(): Promise<string | null> {
+    const { value } = await Preferences.get({ key: WALLET_STORAGE_KEY + "_pubkey" });
+    return value;
+}
+
+export async function removeWalletSecurely(): Promise<void> {
+    try {
+        await NativeBiometric.deleteCredentials({
+            server: "com.millw14.sakura"
+        });
+    } catch (e) {
+        // Ignore
+    }
+
+    await Preferences.remove({ key: WALLET_STORAGE_KEY });
+    await Preferences.remove({ key: WALLET_STORAGE_KEY + "_pubkey" });
+}
+
+export async function checkBiometricAvailability(): Promise<boolean> {
+    try {
+        const result = await NativeBiometric.isAvailable();
+        return result.isAvailable;
+    } catch (error) {
+        return false;
+    }
+}
