@@ -1,5 +1,6 @@
 import { fetchJikanSearch, fetchJikanTrending, fetchJikanInfo } from "./jikan";
 import { searchHiAnime, getHiAnimeEpisodes, getHiAnimeServers, getHiAnimeSources } from "./sources/hianime";
+import { extractMegaCloudSources } from "./sources/megacloud";
 
 export interface AnimeResult {
     id: string; // Will store Jikan ID
@@ -25,7 +26,10 @@ export interface AnimeInfo extends AnimeResult {
 
 export interface StreamingSource {
     url: string;
-    isIframe: boolean;
+    isM3U8: boolean;
+    tracks?: { file: string; label?: string; kind?: string }[];
+    intro?: { start: number; end: number };
+    outro?: { start: number; end: number };
 }
 
 /**
@@ -97,7 +101,7 @@ export async function fetchAnimeInfo(id: string): Promise<AnimeInfo | null> {
         id: String(jikanData.mal_id),
         title: jikanData.title_english || jikanData.title,
         image: jikanData.images?.webp?.large_image_url || jikanData.images?.webp?.image_url,
-        cover: jikanData.images?.webp?.large_image_url || jikanData.images?.webp?.image_url, // fallback
+        cover: jikanData.images?.webp?.large_image_url || jikanData.images?.webp?.image_url,
         description: jikanData.synopsis,
         status: jikanData.status,
         genres: jikanData.genres?.map(g => g.name) || [],
@@ -107,18 +111,44 @@ export async function fetchAnimeInfo(id: string): Promise<AnimeInfo | null> {
 }
 
 /**
- * Resolves an Episode ID into a Megacloud iframe source URL.
- * Episode ID must be HiAnime format
+ * Resolves an Episode ID into a decrypted .m3u8 streaming source.
+ * 1. Gets the Megacloud embed URL from HiAnime
+ * 2. Passes it through our MegaCloud AES decryptor
+ * 3. Returns the raw .m3u8 URL for direct HLS.js playback
  */
 export async function fetchEpisodeSources(episodeId: string): Promise<StreamingSource | null> {
     try {
+        // Get server list for this episode
         const servers = await getHiAnimeServers(episodeId);
         const subServer = servers.find(s => s.type === 'sub') || servers[0];
         if (!subServer) return null;
 
-        const source = await getHiAnimeSources(subServer.serverId);
-        return source;
+        // Get the Megacloud embed URL
+        const iframeSource = await getHiAnimeSources(subServer.serverId);
+        if (!iframeSource || !iframeSource.url) return null;
+
+        console.log('[Anime] Got embed URL:', iframeSource.url);
+
+        // Decrypt the Megacloud sources to get raw .m3u8
+        const megaResult = await extractMegaCloudSources(iframeSource.url);
+        if (!megaResult || megaResult.sources.length === 0) {
+            console.error('[Anime] MegaCloud extraction returned no sources');
+            return null;
+        }
+
+        const m3u8Source = megaResult.sources[0];
+        console.log('[Anime] Decrypted .m3u8:', m3u8Source.file);
+
+        return {
+            url: m3u8Source.file,
+            isM3U8: true,
+            tracks: megaResult.tracks,
+            intro: megaResult.intro,
+            outro: megaResult.outro,
+        };
     } catch (e) {
+        console.error('[Anime] fetchEpisodeSources failed:', e);
         return null;
     }
 }
+

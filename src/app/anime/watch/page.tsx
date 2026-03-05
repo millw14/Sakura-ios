@@ -1,15 +1,19 @@
 "use client";
 
-import { useState, useEffect, Suspense } from "react";
+import { useState, useEffect, useRef, Suspense } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import { fetchEpisodeSources, type StreamingSource, fetchAnimeInfo, type AnimeInfo } from "@/lib/anime";
 import Link from "next/link";
+import Hls from "hls.js";
 
 function AnimeWatchInner() {
     const searchParams = useSearchParams();
     const router = useRouter();
     const id = searchParams.get("id") || "";
     const episodeId = searchParams.get("ep") || "";
+
+    const videoRef = useRef<HTMLVideoElement>(null);
+    const hlsRef = useRef<Hls | null>(null);
 
     const [anime, setAnime] = useState<AnimeInfo | null>(null);
     const [source, setSource] = useState<StreamingSource | null>(null);
@@ -20,6 +24,7 @@ function AnimeWatchInner() {
     useEffect(() => {
         async function load() {
             setLoading(true);
+            setError(null);
             try {
                 const [animeData, sourceData] = await Promise.all([
                     fetchAnimeInfo(id),
@@ -42,6 +47,74 @@ function AnimeWatchInner() {
         }
     }, [id, episodeId]);
 
+    // Mount HLS.js when source changes
+    useEffect(() => {
+        if (!source || !source.isM3U8 || !videoRef.current) return;
+
+        const video = videoRef.current;
+
+        // Cleanup previous HLS instance
+        if (hlsRef.current) {
+            hlsRef.current.destroy();
+            hlsRef.current = null;
+        }
+
+        if (Hls.isSupported()) {
+            const hls = new Hls({
+                // Spoof referer via custom loader if needed
+                xhrSetup: (xhr) => {
+                    xhr.setRequestHeader('Referer', 'https://megacloud.tv/');
+                },
+            });
+            hls.loadSource(source.url);
+            hls.attachMedia(video);
+            hls.on(Hls.Events.MANIFEST_PARSED, () => {
+                video.play().catch(() => { /* autoplay blocked */ });
+            });
+            hls.on(Hls.Events.ERROR, (_event, data) => {
+                if (data.fatal) {
+                    console.error('[HLS] Fatal error:', data.type, data.details);
+                    if (data.type === Hls.ErrorTypes.NETWORK_ERROR) {
+                        hls.startLoad(); // Retry
+                    } else if (data.type === Hls.ErrorTypes.MEDIA_ERROR) {
+                        hls.recoverMediaError();
+                    } else {
+                        setError('HLS playback failed. The stream may be temporarily unavailable.');
+                    }
+                }
+            });
+            hlsRef.current = hls;
+        } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+            // Safari native HLS support
+            video.src = source.url;
+            video.addEventListener('loadedmetadata', () => {
+                video.play().catch(() => { });
+            });
+        } else {
+            setError('HLS playback is not supported in this browser.');
+        }
+
+        // Load subtitle tracks
+        if (source.tracks) {
+            for (const track of source.tracks) {
+                if (track.kind === 'captions' || track.kind === 'subtitles') {
+                    const trackEl = document.createElement('track');
+                    trackEl.kind = 'subtitles';
+                    trackEl.label = track.label || 'Unknown';
+                    trackEl.src = track.file;
+                    video.appendChild(trackEl);
+                }
+            }
+        }
+
+        return () => {
+            if (hlsRef.current) {
+                hlsRef.current.destroy();
+                hlsRef.current = null;
+            }
+        };
+    }, [source]);
+
     // Find current episode and next episode for auto-next logic
     const currentEpisodeIndex = anime?.episodes.findIndex(e => e.id === episodeId) ?? -1;
     const currentEpisode = currentEpisodeIndex >= 0 ? anime?.episodes[currentEpisodeIndex] : null;
@@ -52,7 +125,7 @@ function AnimeWatchInner() {
     if (loading) {
         return (
             <main className="cinema-page" style={{ height: "100vh", display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#000' }}>
-                <div className="spinner" style={{ color: "var(--sakura-pink)" }}>🌸 Buffering Stream...</div>
+                <div className="spinner" style={{ color: "var(--sakura-pink)" }}>🌸 Decrypting Stream...</div>
             </main>
         );
     }
@@ -114,7 +187,7 @@ function AnimeWatchInner() {
                 </Link>
             </header>
 
-            {/* Video Player Container */}
+            {/* HLS Video Player */}
             <div style={{
                 flex: 1,
                 display: "flex",
@@ -125,61 +198,20 @@ function AnimeWatchInner() {
                 paddingTop: "60px",
                 paddingBottom: "10px"
             }}>
-                {source?.isIframe ? (
-                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 20 }}>
-                        <div style={{
-                            padding: 24,
-                            background: 'rgba(255,255,255,0.05)',
-                            borderRadius: 16,
-                            border: '1px solid rgba(255,255,255,0.1)',
-                            textAlign: 'center',
-                            maxWidth: 400
-                        }}>
-                            <h3 style={{ margin: '0 0 12px 0', fontSize: 18, color: 'white' }}>Stream Ready</h3>
-                            <p style={{ margin: '0 0 24px 0', fontSize: 14, color: 'var(--text-muted)' }}>
-                                This episode uses a premium external stream. Tap below to launch the native embedded video player.
-                            </p>
-
-                            <button
-                                onClick={async () => {
-                                    const { Browser } = await import('@capacitor/browser');
-                                    await Browser.open({ url: source.url, presentationStyle: 'fullscreen', windowName: '_blank' });
-                                }}
-                                style={{
-                                    background: 'var(--sakura-pink)',
-                                    color: 'white',
-                                    border: 'none',
-                                    padding: '14px 32px',
-                                    borderRadius: 30,
-                                    fontSize: 16,
-                                    fontWeight: 600,
-                                    cursor: 'pointer',
-                                    display: 'inline-flex',
-                                    alignItems: 'center',
-                                    gap: 10,
-                                    boxShadow: '0 8px 24px rgba(255, 107, 158, 0.4)'
-                                }}
-                            >
-                                <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3" /></svg>
-                                Open Native Player
-                            </button>
-                        </div>
-                    </div>
-                ) : (
-                    <video
-                        controls
-                        autoPlay
-                        src={source?.url}
-                        style={{
-                            width: "100%",
-                            height: "100%",
-                            maxHeight: "85vh",
-                            objectFit: "contain",
-                            boxShadow: "0 0 100px rgba(88, 101, 242, 0.15)",
-                            background: "black"
-                        }}
-                    />
-                )}
+                <video
+                    ref={videoRef}
+                    controls
+                    autoPlay
+                    playsInline
+                    style={{
+                        width: "100%",
+                        height: "100%",
+                        maxHeight: "85vh",
+                        objectFit: "contain",
+                        boxShadow: "0 0 100px rgba(88, 101, 242, 0.15)",
+                        background: "black"
+                    }}
+                />
             </div>
 
             {/* Cinematic Footer / Auto-Next */}
