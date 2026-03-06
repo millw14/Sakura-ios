@@ -11,6 +11,7 @@
  * 6. Decrypt ciphertext to get JSON array of .m3u8 URLs
  */
 import CryptoJS from 'crypto-js';
+import { Capacitor, CapacitorHttp } from '@capacitor/core';
 
 const SOURCES_URL = 'https://megacloud.tv/embed-2/ajax/e-1/getSources?id=';
 const SCRIPT_URL = 'https://megacloud.tv/js/player/a/prod/e1-player.min.js?v=';
@@ -18,10 +19,21 @@ const FALLBACK_KEY_URL = 'https://raw.githubusercontent.com/itzzzme/megacloud-ke
 
 const HEADERS = {
     'Referer': 'https://hianime.to/',
-    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
     'X-Requested-With': 'XMLHttpRequest',
     'Accept': '*/*',
 };
+
+async function requestMegaCloud(url: string, expectsJson = false) {
+    if (Capacitor.isNativePlatform()) {
+        const response = await CapacitorHttp.get({ url, headers: HEADERS });
+        if (response.status >= 400) throw new Error(`HTTP Error: ${response.status}`);
+        return response.data;
+    } else {
+        const res = await fetch(url, { headers: HEADERS });
+        if (!res.ok) throw new Error(`HTTP Error: ${res.status}`);
+        return expectsJson ? res.json() : res.text();
+    }
+}
 
 export interface MegaCloudResult {
     sources: { file: string; type: string }[];
@@ -42,8 +54,7 @@ export async function extractMegaCloudSources(embedUrl: string): Promise<MegaClo
         console.log('[MegaCloud] Fetching sources for:', videoId);
 
         // Step 1: Fetch encrypted sources
-        const srcsRes = await fetch(SOURCES_URL + videoId, { headers: HEADERS });
-        const srcsData = await srcsRes.json();
+        const srcsData = await requestMegaCloud(SOURCES_URL + videoId, true);
 
         // If not encrypted, return directly
         if (!srcsData.encrypted || typeof srcsData.sources !== 'string') {
@@ -99,8 +110,7 @@ export async function extractMegaCloudSources(embedUrl: string): Promise<MegaClo
 
 async function decryptViaScript(encryptedSources: string): Promise<string> {
     // Fetch the obfuscated player script
-    const scriptRes = await fetch(SCRIPT_URL + Date.now(), { headers: HEADERS });
-    const script = await scriptRes.text();
+    const script = await requestMegaCloud(SCRIPT_URL + Date.now(), false);
     console.log('[MegaCloud] Player script length:', script.length);
 
     // Extract variable index pairs
@@ -256,8 +266,8 @@ function evpBytesToKey(password: CryptoJS.lib.WordArray, salt: CryptoJS.lib.Word
 // ── Fallback: Hosted Key Decryption ───────────────────────────────────
 
 async function decryptViaFallbackKey(encryptedSources: string): Promise<string> {
-    const keyRes = await fetch(FALLBACK_KEY_URL);
-    const key = (await keyRes.text()).trim();
+    const keyText = await requestMegaCloud(FALLBACK_KEY_URL, false);
+    const key = keyText.trim();
     console.log('[MegaCloud] Using fallback key:', key.substring(0, 8) + '...');
 
     const decrypted = CryptoJS.AES.decrypt(encryptedSources, key);

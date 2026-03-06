@@ -1,11 +1,23 @@
 import * as cheerio from "cheerio";
+import { Capacitor, CapacitorHttp } from '@capacitor/core';
 
 const BASE_URL = "https://hianime.to";
 
+async function requestHianime(url: string, expectsJson = false) {
+    if (Capacitor.isNativePlatform()) {
+        const response = await CapacitorHttp.get({ url });
+        if (response.status >= 400) throw new Error(`HTTP Error: ${response.status}`);
+        return response.data;
+    } else {
+        const res = await fetch(url);
+        if (!res.ok) throw new Error(`HTTP Error: ${res.status}`);
+        return expectsJson ? res.json() : res.text();
+    }
+}
+
 export async function searchHiAnime(query: string) {
     try {
-        const res = await fetch(`${BASE_URL}/search?keyword=${encodeURIComponent(query)}`);
-        const html = await res.text();
+        const html = await requestHianime(`${BASE_URL}/search?keyword=${encodeURIComponent(query)}`);
         const $ = cheerio.load(html);
 
         const results: any[] = [];
@@ -29,8 +41,7 @@ export async function searchHiAnime(query: string) {
 
 export async function getHiAnimeEpisodes(animeId: string) {
     try {
-        const res = await fetch(`${BASE_URL}/ajax/v2/episode/list/${animeId}`);
-        const data = await res.json();
+        const data = await requestHianime(`${BASE_URL}/ajax/v2/episode/list/${animeId}`, true);
         const $ = cheerio.load(data.html);
 
         const episodes: any[] = [];
@@ -55,8 +66,7 @@ export async function getHiAnimeEpisodes(animeId: string) {
 
 export async function getHiAnimeServers(episodeId: string) {
     try {
-        const res = await fetch(`${BASE_URL}/ajax/v2/episode/servers?episodeId=${episodeId}`);
-        const data = await res.json();
+        const data = await requestHianime(`${BASE_URL}/ajax/v2/episode/servers?episodeId=${episodeId}`, true);
         const $ = cheerio.load(data.html);
 
         const servers: any[] = [];
@@ -76,8 +86,7 @@ export async function getHiAnimeServers(episodeId: string) {
 
 export async function getHiAnimeSources(serverId: string) {
     try {
-        const res = await fetch(`${BASE_URL}/ajax/v2/episode/sources?id=${serverId}`);
-        const data = await res.json();
+        const data = await requestHianime(`${BASE_URL}/ajax/v2/episode/sources?id=${serverId}`, true);
         return {
             url: data.link,
             isIframe: data.type === 'iframe'

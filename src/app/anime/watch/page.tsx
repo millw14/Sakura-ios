@@ -1,10 +1,11 @@
 "use client";
 
-import { useState, useEffect, useRef, Suspense } from "react";
+import { useState, useEffect, Suspense } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import { fetchEpisodeSources, type StreamingSource, fetchAnimeInfo, type AnimeInfo } from "@/lib/anime";
 import Link from "next/link";
-import Hls from "hls.js";
+import { Capacitor } from '@capacitor/core';
+import { Browser } from '@capacitor/browser';
 
 function AnimeWatchInner() {
     const searchParams = useSearchParams();
@@ -12,13 +13,11 @@ function AnimeWatchInner() {
     const id = searchParams.get("id") || "";
     const episodeId = searchParams.get("ep") || "";
 
-    const videoRef = useRef<HTMLVideoElement>(null);
-    const hlsRef = useRef<Hls | null>(null);
-
     const [anime, setAnime] = useState<AnimeInfo | null>(null);
     const [source, setSource] = useState<StreamingSource | null>(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
+    const [isNative] = useState(Capacitor.isNativePlatform());
 
     // Load anime meta and video sources
     useEffect(() => {
@@ -47,73 +46,31 @@ function AnimeWatchInner() {
         }
     }, [id, episodeId]);
 
-    // Mount HLS.js when source changes
+    // Launch native browser on load if native
     useEffect(() => {
-        if (!source || !source.isM3U8 || !videoRef.current) return;
+        if (isNative && source && source.url && !error) {
+            openNativePlayer();
 
-        const video = videoRef.current;
+            // Listen for when they close the video player
+            Browser.addListener('browserFinished', () => {
+                console.log('[Anime] Native player closed');
+            });
 
-        // Cleanup previous HLS instance
-        if (hlsRef.current) {
-            hlsRef.current.destroy();
-            hlsRef.current = null;
+            return () => {
+                Browser.removeAllListeners();
+            };
         }
+    }, [isNative, source, error]);
 
-        if (Hls.isSupported()) {
-            const hls = new Hls({
-                // Spoof referer via custom loader if needed
-                xhrSetup: (xhr) => {
-                    xhr.setRequestHeader('Referer', 'https://megacloud.tv/');
-                },
-            });
-            hls.loadSource(source.url);
-            hls.attachMedia(video);
-            hls.on(Hls.Events.MANIFEST_PARSED, () => {
-                video.play().catch(() => { /* autoplay blocked */ });
-            });
-            hls.on(Hls.Events.ERROR, (_event, data) => {
-                if (data.fatal) {
-                    console.error('[HLS] Fatal error:', data.type, data.details);
-                    if (data.type === Hls.ErrorTypes.NETWORK_ERROR) {
-                        hls.startLoad(); // Retry
-                    } else if (data.type === Hls.ErrorTypes.MEDIA_ERROR) {
-                        hls.recoverMediaError();
-                    } else {
-                        setError('HLS playback failed. The stream may be temporarily unavailable.');
-                    }
-                }
-            });
-            hlsRef.current = hls;
-        } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
-            // Safari native HLS support
-            video.src = source.url;
-            video.addEventListener('loadedmetadata', () => {
-                video.play().catch(() => { });
-            });
-        } else {
-            setError('HLS playback is not supported in this browser.');
-        }
-
-        // Load subtitle tracks
-        if (source.tracks) {
-            for (const track of source.tracks) {
-                if (track.kind === 'captions' || track.kind === 'subtitles') {
-                    const trackEl = document.createElement('track');
-                    trackEl.kind = 'subtitles';
-                    trackEl.label = track.label || 'Unknown';
-                    trackEl.src = track.file;
-                    video.appendChild(trackEl);
-                }
-            }
-        }
-
-        return () => {
-            if (hlsRef.current) {
-                hlsRef.current.destroy();
-                hlsRef.current = null;
-            }
-        };
-    }, [source]);
+    const openNativePlayer = async () => {
+        if (!source?.url) return;
+        await Browser.open({
+            url: source.url,
+            presentationStyle: 'fullscreen',
+            toolbarColor: '#000000',
+            windowName: '_self'
+        });
+    };
 
     // Find current episode and next episode for auto-next logic
     const currentEpisodeIndex = anime?.episodes.findIndex(e => e.id === episodeId) ?? -1;
@@ -125,7 +82,7 @@ function AnimeWatchInner() {
     if (loading) {
         return (
             <main className="cinema-page" style={{ height: "100vh", display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#000' }}>
-                <div className="spinner" style={{ color: "var(--sakura-pink)" }}>🌸 Decrypting Stream...</div>
+                <div className="spinner" style={{ color: "var(--sakura-pink)" }}>🌸 Locating Stream...</div>
             </main>
         );
     }
@@ -187,10 +144,11 @@ function AnimeWatchInner() {
                 </Link>
             </header>
 
-            {/* HLS Video Player */}
+            {/* Main Player Display */}
             <div style={{
                 flex: 1,
                 display: "flex",
+                flexDirection: "column",
                 alignItems: "center",
                 justifyContent: "center",
                 position: "relative",
@@ -198,20 +156,34 @@ function AnimeWatchInner() {
                 paddingTop: "60px",
                 paddingBottom: "10px"
             }}>
-                <video
-                    ref={videoRef}
-                    controls
-                    autoPlay
-                    playsInline
-                    style={{
-                        width: "100%",
-                        height: "100%",
-                        maxHeight: "85vh",
-                        objectFit: "contain",
-                        boxShadow: "0 0 100px rgba(88, 101, 242, 0.15)",
-                        background: "black"
-                    }}
-                />
+                {isNative ? (
+                    <div style={{ textAlign: 'center', padding: '2rem' }}>
+                        <div style={{ fontSize: '48px', marginBottom: '1rem' }}>🍿</div>
+                        <h2 style={{ color: 'white', marginBottom: '1rem' }}>Native Player Ready</h2>
+                        <p style={{ color: 'var(--text-muted)', marginBottom: '2rem', maxWidth: '300px' }}>
+                            We use the native Android video engine to provide the fastest ad-free playback.
+                        </p>
+                        <button
+                            onClick={openNativePlayer}
+                            className="btn-primary"
+                            style={{ padding: '16px 32px', fontSize: '1.2rem', borderRadius: '25px' }}
+                        >
+                            ▶ Open Episode
+                        </button>
+                    </div>
+                ) : (
+                    <iframe
+                        src={source?.url}
+                        allowFullScreen
+                        style={{
+                            width: "100%",
+                            height: "100%",
+                            minHeight: "400px",
+                            border: "none",
+                            background: "black"
+                        }}
+                    />
+                )}
             </div>
 
             {/* Cinematic Footer / Auto-Next */}

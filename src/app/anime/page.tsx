@@ -177,13 +177,13 @@ export default function AnimeBrowsePage() {
                     {isSearching && (
                         <>
                             {loading ? (
-                                <div className="manga-grid">
+                                <div className="manga-grid" style={{ gridTemplateColumns: "repeat(2, 1fr)" }}>
                                     {Array.from({ length: 6 }).map((_, i) => (
                                         <div key={i} className="loading-skeleton" style={{ aspectRatio: "2/3", borderRadius: "var(--radius-md)" }} />
                                     ))}
                                 </div>
                             ) : searchResults.length > 0 ? (
-                                <div className="manga-grid">
+                                <div className="manga-grid" style={{ gridTemplateColumns: "repeat(2, 1fr)" }}>
                                     {searchResults.map((anime) => (
                                         <AnimeCard key={anime.id} id={anime.id} title={anime.title} image={anime.image} type={anime.type} />
                                     ))}
@@ -206,13 +206,13 @@ export default function AnimeBrowsePage() {
                             </div>
 
                             {airingLoading ? (
-                                <div className="manga-grid">
+                                <div className="manga-grid" style={{ gridTemplateColumns: "repeat(2, 1fr)" }}>
                                     {Array.from({ length: 6 }).map((_, i) => (
                                         <div key={i} className="loading-skeleton" style={{ aspectRatio: "2/3", borderRadius: "var(--radius-md)" }} />
                                     ))}
                                 </div>
                             ) : airingAnime.length > 0 ? (
-                                <div className="manga-grid">
+                                <div className="manga-grid" style={{ gridTemplateColumns: "repeat(2, 1fr)" }}>
                                     {airingAnime.map((anime) => (
                                         <AnimeCard key={anime.id} id={anime.id} title={anime.title} image={anime.image} type={anime.type} />
                                     ))}

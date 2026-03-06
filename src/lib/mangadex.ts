@@ -1,8 +1,20 @@
-import axios from "axios";
+import { Capacitor, CapacitorHttp } from '@capacitor/core';
 import { cacheWrap } from "./cache";
 
 const MANGADEX_API_URL = "https://api.mangadex.org";
 const UPLOADS_URL = "https://uploads.mangadex.org";
+
+async function requestMd(url: string) {
+    if (Capacitor.isNativePlatform()) {
+        const response = await CapacitorHttp.get({ url });
+        if (response.status >= 400) throw new Error(`HTTP Error: ${response.status}`);
+        return response.data;
+    } else {
+        const res = await fetch(url);
+        if (!res.ok) throw new Error(`HTTP Error: ${res.status}`);
+        return res.json();
+    }
+}
 
 export interface Manga {
     id: string;
@@ -54,9 +66,9 @@ export async function searchManga(query: string = "", limit = 20, offset = 0): P
             }
 
             const url = `${MANGADEX_API_URL}/manga?${params.toString()}`;
-            const response = await axios.get(url);
+            const data = await requestMd(url);
 
-            return response.data.data.map((item: any) => {
+            return data.data.map((item: any) => {
                 const attributes = item.attributes;
                 const coverRel = item.relationships.find((r: any) => r.type === "cover_art");
                 const authorRel = item.relationships.find((r: any) => r.type === "author");
@@ -87,10 +99,10 @@ export async function getAuthorDetails(authorId: string) {
     return cacheWrap(cacheKey, async () => {
         try {
             const url = `${MANGADEX_API_URL}/author/${authorId}`;
-            const response = await axios.get(url);
-            const attrs = response.data.data.attributes;
+            const data = await requestMd(url);
+            const attrs = data.data.attributes;
             return {
-                id: response.data.data.id,
+                id: data.data.id,
                 name: attrs.name,
                 biography: attrs.biography?.en || "",
                 twitter: attrs.twitter || null,
@@ -122,9 +134,9 @@ export async function getMangaByAuthor(authorId: string, limit = 20, offset = 0)
             params.append("contentRating[]", "suggestive");
 
             const url = `${MANGADEX_API_URL}/manga?${params.toString()}`;
-            const response = await axios.get(url);
+            const data = await requestMd(url);
 
-            return response.data.data.map((item: any) => {
+            return data.data.map((item: any) => {
                 const attributes = item.attributes;
                 const coverRel = item.relationships.find((r: any) => r.type === "cover_art");
                 const authorRel = item.relationships.find((r: any) => r.type === "author");
@@ -157,8 +169,8 @@ export async function getMangaStatistics(mangaIds: string[]) {
             mangaIds.forEach(id => params.append("manga[]", id));
 
             const url = `${MANGADEX_API_URL}/statistics/manga?${params.toString()}`;
-            const response = await axios.get(url);
-            return response.data.statistics;
+            const data = await requestMd(url);
+            return data.statistics;
         } catch (error) {
             console.error("MangaDex Stats Error:", error);
             return {};
@@ -171,8 +183,8 @@ export async function getMangaDetails(id: string): Promise<Manga | null> {
     return cacheWrap(`details:${id}`, async () => {
         try {
             const url = `${MANGADEX_API_URL}/manga/${id}?includes[]=cover_art&includes[]=author`;
-            const response = await axios.get(url);
-            const item = response.data.data;
+            const data = await requestMd(url);
+            const item = data.data;
             const attributes = item.attributes;
             const coverRel = item.relationships.find((r: any) => r.type === "cover_art");
             const authorRel = item.relationships.find((r: any) => r.type === "author");
@@ -210,9 +222,9 @@ export async function getChapters(mangaId: string, limit = 100, offset = 0): Pro
             });
 
             const url = `${MANGADEX_API_URL}/chapter?${params.toString()}`;
-            const response = await axios.get(url);
+            const data = await requestMd(url);
 
-            return response.data.data
+            return data.data
                 .map((item: any) => {
                     // Check for official Bilibili Comics takedowns which were replaced by MangaDex placeholders
                     const isBilibiliTakedown = item.relationships?.some(
@@ -244,8 +256,8 @@ export async function getChapters(mangaId: string, limit = 100, offset = 0): Pro
 export async function getChapterDetails(chapterId: string): Promise<Chapter | null> {
     try {
         const url = `${MANGADEX_API_URL}/chapter/${chapterId}`;
-        const response = await axios.get(url);
-        const item = response.data.data;
+        const data = await requestMd(url);
+        const item = data.data;
 
         // Handle Bilibili Comics official takedowns
         const isBilibiliTakedown = item.relationships?.some(
@@ -273,8 +285,8 @@ export async function getChapterPages(chapterId: string): Promise<string[]> {
     try {
         // 1. Get Base URL
         const url = `${MANGADEX_API_URL}/at-home/server/${chapterId}`;
-        const response = await axios.get(url);
-        const { baseUrl, chapter } = response.data;
+        const data = await requestMd(url);
+        const { baseUrl, chapter } = data;
 
         // 2. Check Data Saver Setting
         let useDataSaver = false;
@@ -316,9 +328,9 @@ export async function getFeaturedManga(): Promise<Manga[]> {
             params.append("includes[]", "author");
 
             const url = `${MANGADEX_API_URL}/manga?${params.toString()}`;
-            const response = await axios.get(url);
+            const data = await requestMd(url);
 
-            const mangaList = response.data.data.map((item: any) => {
+            const mangaList = data.data.map((item: any) => {
                 const attributes = item.attributes;
                 const coverRel = item.relationships.find((r: any) => r.type === "cover_art");
                 const authorRel = item.relationships.find((r: any) => r.type === "author");

@@ -129,22 +129,11 @@ export async function fetchEpisodeSources(episodeId: string): Promise<StreamingS
 
         console.log('[Anime] Got embed URL:', iframeSource.url);
 
-        // Decrypt the Megacloud sources to get raw .m3u8
-        const megaResult = await extractMegaCloudSources(iframeSource.url);
-        if (!megaResult || megaResult.sources.length === 0) {
-            console.error('[Anime] MegaCloud extraction returned no sources');
-            return null;
-        }
-
-        const m3u8Source = megaResult.sources[0];
-        console.log('[Anime] Decrypted .m3u8:', m3u8Source.file);
-
+        // Instead of trying to natively extract M3U8 (which fails Cloudflare challenge on Dalvik clients),
+        // we return the embed URL directly so the mobile frontend can mount it natively in a Browser overlay.
         return {
-            url: m3u8Source.file,
-            isM3U8: true,
-            tracks: megaResult.tracks,
-            intro: megaResult.intro,
-            outro: megaResult.outro,
+            url: iframeSource.url,
+            isM3U8: false
         };
     } catch (e) {
         console.error('[Anime] fetchEpisodeSources failed:', e);

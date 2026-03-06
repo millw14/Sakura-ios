@@ -1,3 +1,5 @@
+import { Capacitor, CapacitorHttp } from '@capacitor/core';
+
 const JIKAN_API = 'https://api.jikan.moe/v4';
 
 export interface JikanAnime {
@@ -18,11 +20,21 @@ export interface JikanAnime {
     genres: { name: string }[];
 }
 
+async function requestJikan(url: string) {
+    if (Capacitor.isNativePlatform()) {
+        const response = await CapacitorHttp.get({ url });
+        if (response.status >= 400) throw new Error(`HTTP Error: ${response.status}`);
+        return response.data;
+    } else {
+        const res = await fetch(url);
+        if (!res.ok) throw new Error(`HTTP Error: ${res.status}`);
+        return res.json();
+    }
+}
+
 export async function fetchJikanSearch(query: string): Promise<JikanAnime[]> {
     try {
-        const res = await fetch(`${JIKAN_API}/anime?q=${encodeURIComponent(query)}&order_by=popularity&sort=asc&sfw=true`);
-        // Jikan rate limits: be careful
-        const data = await res.json();
+        const data = await requestJikan(`${JIKAN_API}/anime?q=${encodeURIComponent(query)}&order_by=popularity&sort=asc&sfw=true`);
         return data.data || [];
     } catch (e) {
         console.error("Jikan Search Error", e);
@@ -32,8 +44,7 @@ export async function fetchJikanSearch(query: string): Promise<JikanAnime[]> {
 
 export async function fetchJikanTrending(): Promise<JikanAnime[]> {
     try {
-        const res = await fetch(`${JIKAN_API}/top/anime?filter=airing&limit=12`);
-        const data = await res.json();
+        const data = await requestJikan(`${JIKAN_API}/top/anime?filter=airing&limit=12`);
         return data.data || [];
     } catch (e) {
         console.error("Jikan Trending Error", e);
@@ -43,8 +54,7 @@ export async function fetchJikanTrending(): Promise<JikanAnime[]> {
 
 export async function fetchJikanInfo(id: string | number): Promise<JikanAnime | null> {
     try {
-        const res = await fetch(`${JIKAN_API}/anime/${id}/full`);
-        const data = await res.json();
+        const data = await requestJikan(`${JIKAN_API}/anime/${id}/full`);
         return data.data || null;
     } catch (e) {
         console.error("Jikan Info Error", e);

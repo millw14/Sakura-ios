@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useEffect } from "react";
+import { useMemo, useEffect, useRef } from "react";
 import {
     ConnectionProvider,
     WalletProvider,
@@ -14,13 +14,18 @@ import { SakuraNativeWalletAdapter } from "@/lib/wallet-adapter";
 // AutoConnects the Sakura Native Wallet silently if public key is stored
 function WalletPersistence() {
     const { select, wallets, connected, connecting } = useWallet();
+    const attempted = useRef(false);
 
     useEffect(() => {
-        if (connected || connecting || wallets.length === 0) return;
+        if (connected || connecting || wallets.length === 0 || attempted.current) return;
 
-        // Force select the native wallet adapter.
-        // If the public key is already in preferences, the adapter's connect() method will succeed instantly.
-        select(wallets[0].adapter.name);
+        // Only attempt once to prevent infinite render loops
+        attempted.current = true;
+        try {
+            select(wallets[0].adapter.name);
+        } catch {
+            // Silently ignore - no wallet available
+        }
     }, [wallets, select, connected, connecting]);
 
     return null;
