@@ -43,3 +43,13 @@ next-env.d.ts
 # manga files (too large)
 /Weekly Viz*/
 /public/manga/
+
+# test files
+test-*
+scripts/test-*
+
+# build artifacts
+build.log
+
+# reference repos
+aniyomi-main/

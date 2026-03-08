@@ -208,7 +208,8 @@ class WebViewExtractor(private val context: Context) {
                 synchronized(allUrls) { allUrls.add(url) }
 
                 if (isSubtitleUrl(url)) {
-                    val label = url.substringAfterLast("/")
+                    val cleanPath = url.split("?")[0]
+                    val label = cleanPath.substringAfterLast("/")
                         .substringBeforeLast(".")
                         .replace(Regex("^\\d+-"), "")
                         .ifEmpty { "Subtitle" }
@@ -226,7 +227,10 @@ class WebViewExtractor(private val context: Context) {
                         val headers = mutableMapOf<String, String>()
                         request.requestHeaders?.forEach { (k, v) -> headers[k] = v }
                         pendingStream = ExtractedStream(m3u8Url = url, referer = referer, headers = headers)
-                        val delay = if (capturedSubtitles.isNotEmpty()) 500L else 1500L
+                        Handler(Looper.getMainLooper()).post {
+                            injectSubtitleExtraction(view, addDebug)
+                        }
+                        val delay = if (capturedSubtitles.isNotEmpty()) 500L else 2000L
                         addDebug("Stream via intercept, collecting subs for ${delay}ms (${capturedSubtitles.size} already)")
                         Handler(Looper.getMainLooper()).postDelayed({
                             finishWithSubtitles()
@@ -280,7 +284,44 @@ class WebViewExtractor(private val context: Context) {
 
     private fun isSubtitleUrl(url: String): Boolean {
         val lower = url.lowercase()
-        return lower.endsWith(".vtt") || lower.endsWith(".srt") || lower.endsWith(".ass")
+        val path = lower.split("?")[0]
+        return path.endsWith(".vtt") || path.endsWith(".srt") || path.endsWith(".ass") ||
+            lower.contains("/subtitle/") || lower.contains("/caption/")
+    }
+
+    private fun injectSubtitleExtraction(view: WebView?, addDebug: (String) -> Unit) {
+        if (view == null) return
+        val script = """
+            (function() {
+                try {
+                    if (typeof jwplayer === 'function') {
+                        var p = jwplayer();
+                        var item = p && p.getPlaylistItem ? p.getPlaylistItem() : null;
+                        if (item && item.tracks) {
+                            var subs = item.tracks.filter(function(t) {
+                                return t.kind === 'captions' || t.kind === 'subtitles';
+                            });
+                            if (subs.length > 0) {
+                                Extractor.onSubtitlesFound(JSON.stringify(subs));
+                                Extractor.logDebug('Extracted ' + subs.length + ' subtitle tracks from JWPlayer');
+                            } else {
+                                Extractor.logDebug('JWPlayer has no caption/subtitle tracks');
+                            }
+                        }
+                        var pl = p && p.getPlaylist ? p.getPlaylist() : null;
+                        if (pl && pl.length > 0 && pl[0].tracks) {
+                            var subs2 = pl[0].tracks.filter(function(t) {
+                                return t.kind === 'captions' || t.kind === 'subtitles';
+                            });
+                            if (subs2.length > 0) {
+                                Extractor.onSubtitlesFound(JSON.stringify(subs2));
+                            }
+                        }
+                    }
+                } catch(e) { Extractor.logDebug('Sub extraction err: ' + e.message); }
+            })();
+        """.trimIndent()
+        view.evaluateJavascript(script, null)
     }
 
     private fun injectAutoPlayAndPoll(view: WebView?, addDebug: (String) -> Unit) {
