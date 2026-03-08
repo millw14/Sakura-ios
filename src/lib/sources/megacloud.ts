@@ -13,8 +13,10 @@
 import CryptoJS from 'crypto-js';
 import { Capacitor, CapacitorHttp } from '@capacitor/core';
 
-const SOURCES_URL = 'https://megacloud.tv/embed-2/ajax/e-1/getSources?id=';
-const SCRIPT_URL = 'https://megacloud.tv/js/player/a/prod/e1-player.min.js?v=';
+let MEGACLOUD_BASE = 'https://megacloud.blog';
+let EMBED_PREFIX = '/embed-2';
+function getSourcesUrl() { return `${MEGACLOUD_BASE}${EMBED_PREFIX}/ajax/e-1/getSources?id=`; }
+function getScriptUrl() { return `${MEGACLOUD_BASE}/js/player/a/prod/e1-player.min.js?v=`; }
 const FALLBACK_KEY_URL = 'https://raw.githubusercontent.com/itzzzme/megacloud-keys/main/key.txt';
 
 const HEADERS = {
@@ -47,14 +49,19 @@ export interface MegaCloudResult {
  */
 export async function extractMegaCloudSources(embedUrl: string): Promise<MegaCloudResult | null> {
     try {
-        // Extract videoId from embed URL: e.g. https://megacloud.tv/embed-2/e-1/XQHKB132Cmag?k=1
-        const urlParts = new URL(embedUrl).pathname.split('/');
+        const parsed = new URL(embedUrl);
+        MEGACLOUD_BASE = `${parsed.protocol}//${parsed.host}`;
+        const urlParts = parsed.pathname.split('/');
         const videoId = urlParts[urlParts.length - 1].split('?')[0];
 
-        console.log('[MegaCloud] Fetching sources for:', videoId);
+        // Extract versioned prefix: /embed-2/v3 from /embed-2/v3/e-1/videoId
+        const eIdx = urlParts.findIndex(p => p.startsWith('e-'));
+        EMBED_PREFIX = eIdx > 1 ? '/' + urlParts.slice(1, eIdx).join('/') : '/embed-2';
+
+        console.log('[MegaCloud] Base:', MEGACLOUD_BASE, 'Prefix:', EMBED_PREFIX, 'Video ID:', videoId);
 
         // Step 1: Fetch encrypted sources
-        const srcsData = await requestMegaCloud(SOURCES_URL + videoId, true);
+        const srcsData = await requestMegaCloud(getSourcesUrl() + videoId, true);
 
         // If not encrypted, return directly
         if (!srcsData.encrypted || typeof srcsData.sources !== 'string') {
@@ -110,7 +117,7 @@ export async function extractMegaCloudSources(embedUrl: string): Promise<MegaClo
 
 async function decryptViaScript(encryptedSources: string): Promise<string> {
     // Fetch the obfuscated player script
-    const script = await requestMegaCloud(SCRIPT_URL + Date.now(), false);
+    const script = await requestMegaCloud(getScriptUrl() + Date.now(), false);
     console.log('[MegaCloud] Player script length:', script.length);
 
     // Extract variable index pairs

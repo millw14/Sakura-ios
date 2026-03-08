@@ -5,7 +5,6 @@ import { useSearchParams, useRouter } from "next/navigation";
 import { fetchEpisodeSources, type StreamingSource, fetchAnimeInfo, type AnimeInfo } from "@/lib/anime";
 import Link from "next/link";
 import { Capacitor } from '@capacitor/core';
-import { Browser } from '@capacitor/browser';
 
 function AnimeWatchInner() {
     const searchParams = useSearchParams();
@@ -17,62 +16,64 @@ function AnimeWatchInner() {
     const [source, setSource] = useState<StreamingSource | null>(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
+    const [nativePlaying, setNativePlaying] = useState(false);
     const [isNative] = useState(Capacitor.isNativePlatform());
 
-    // Load anime meta and video sources
     useEffect(() => {
         async function load() {
             setLoading(true);
             setError(null);
             try {
-                const [animeData, sourceData] = await Promise.all([
-                    fetchAnimeInfo(id),
-                    fetchEpisodeSources(episodeId)
-                ]);
-
-                if (animeData) setAnime(animeData);
-                if (sourceData) {
-                    setSource(sourceData);
+                if (isNative) {
+                    // Native: only load anime metadata — the Kotlin plugin handles streaming
+                    const animeData = await fetchAnimeInfo(id);
+                    if (animeData) setAnime(animeData);
                 } else {
-                    setError("Failed to extract video feeds for this episode.");
+                    // Web: load both metadata and embed source for iframe
+                    const [animeData, sourceData] = await Promise.all([
+                        fetchAnimeInfo(id),
+                        fetchEpisodeSources(episodeId)
+                    ]);
+                    if (animeData) setAnime(animeData);
+                    if (sourceData) {
+                        setSource(sourceData);
+                    } else {
+                        setError("Failed to extract video feeds for this episode.");
+                    }
                 }
             } catch (e: any) {
-                setError(e.message || "Failed to load episode stream.");
+                setError(e.message || "Failed to load episode.");
             }
             setLoading(false);
         }
         if (id && episodeId) {
             load();
         }
-    }, [id, episodeId]);
+    }, [id, episodeId, isNative]);
 
-    // Launch native browser on load if native
-    useEffect(() => {
-        if (isNative && source && source.url && !error) {
-            openNativePlayer();
-
-            // Listen for when they close the video player
-            Browser.addListener('browserFinished', () => {
-                console.log('[Anime] Native player closed');
-            });
-
-            return () => {
-                Browser.removeAllListeners();
-            };
+    const playNative = async () => {
+        try {
+            setNativePlaying(true);
+            setError(null);
+            const { Anime } = await import("@/plugins/anime");
+            const currentEp = anime?.episodes.find(e => e.id === episodeId);
+            const title = currentEp?.title || `Episode ${currentEp?.number || "?"}`;
+            await Anime.playEpisode({ episodeId, title });
+        } catch (e: any) {
+            console.error('[Anime] Native playback error:', e);
+            setError(e.message || "Native playback failed. Try again.");
+        } finally {
+            setNativePlaying(false);
         }
-    }, [isNative, source, error]);
-
-    const openNativePlayer = async () => {
-        if (!source?.url) return;
-        await Browser.open({
-            url: source.url,
-            presentationStyle: 'fullscreen',
-            toolbarColor: '#000000',
-            windowName: '_self'
-        });
     };
 
-    // Find current episode and next episode for auto-next logic
+    // Auto-launch native player once metadata is loaded
+    useEffect(() => {
+        if (isNative && anime && !error && !nativePlaying) {
+            playNative();
+        }
+    }, [isNative, anime, episodeId]);
+
     const currentEpisodeIndex = anime?.episodes.findIndex(e => e.id === episodeId) ?? -1;
     const currentEpisode = currentEpisodeIndex >= 0 ? anime?.episodes[currentEpisodeIndex] : null;
     const nextEpisode = currentEpisodeIndex >= 0 && currentEpisodeIndex < (anime?.episodes.length || 0) - 1
@@ -82,19 +83,45 @@ function AnimeWatchInner() {
     if (loading) {
         return (
             <main className="cinema-page" style={{ height: "100vh", display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#000' }}>
-                <div className="spinner" style={{ color: "var(--sakura-pink)" }}>🌸 Locating Stream...</div>
+                <div className="spinner" style={{ color: "var(--sakura-pink)" }}>
+                    {isNative ? "🌸 Preparing Native Player..." : "🌸 Locating Stream..."}
+                </div>
             </main>
         );
     }
 
     if (error) {
+        const copyLog = () => {
+            navigator.clipboard?.writeText(error).then(() => {
+                alert("Copied to clipboard!");
+            }).catch(() => {
+                const ta = document.createElement("textarea");
+                ta.value = error;
+                document.body.appendChild(ta);
+                ta.select();
+                document.execCommand("copy");
+                document.body.removeChild(ta);
+                alert("Copied to clipboard!");
+            });
+        };
+
         return (
             <main className="cinema-page" style={{ height: "100vh", display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', background: '#000', color: '#fff', padding: 20 }}>
                 <h2>Playback Error</h2>
-                <p style={{ color: 'var(--text-muted)' }}>{error}</p>
-                <button onClick={() => router.back()} className="btn-secondary" style={{ marginTop: 24 }}>
-                    Go Back
-                </button>
+                <pre style={{ color: 'var(--text-muted)', whiteSpace: 'pre-wrap', wordBreak: 'break-all', maxHeight: '50vh', overflow: 'auto', fontSize: '0.7rem', textAlign: 'left', width: '100%', padding: '8px', background: 'rgba(255,255,255,0.05)', borderRadius: '8px' }}>{error}</pre>
+                <div style={{ display: 'flex', gap: 12, marginTop: 16, flexWrap: 'wrap', justifyContent: 'center' }}>
+                    {isNative && (
+                        <button onClick={playNative} className="btn-primary" style={{ padding: '12px 24px' }}>
+                            Retry
+                        </button>
+                    )}
+                    <button onClick={copyLog} style={{ padding: '12px 24px', background: '#333', color: '#fff', border: 'none', borderRadius: '8px', cursor: 'pointer' }}>
+                        Copy Log
+                    </button>
+                    <button onClick={() => router.back()} className="btn-secondary">
+                        Go Back
+                    </button>
+                </div>
             </main>
         );
     }
@@ -159,16 +186,19 @@ function AnimeWatchInner() {
                 {isNative ? (
                     <div style={{ textAlign: 'center', padding: '2rem' }}>
                         <div style={{ fontSize: '48px', marginBottom: '1rem' }}>🍿</div>
-                        <h2 style={{ color: 'white', marginBottom: '1rem' }}>Native Player Ready</h2>
+                        <h2 style={{ color: 'white', marginBottom: '1rem' }}>
+                            {nativePlaying ? "Launching Player..." : "Native Player Ready"}
+                        </h2>
                         <p style={{ color: 'var(--text-muted)', marginBottom: '2rem', maxWidth: '300px' }}>
-                            We use the native Android video engine to provide the fastest ad-free playback.
+                            Sakura uses a native Android video engine for the fastest ad-free playback.
                         </p>
                         <button
-                            onClick={openNativePlayer}
+                            onClick={playNative}
+                            disabled={nativePlaying}
                             className="btn-primary"
-                            style={{ padding: '16px 32px', fontSize: '1.2rem', borderRadius: '25px' }}
+                            style={{ padding: '16px 32px', fontSize: '1.2rem', borderRadius: '25px', opacity: nativePlaying ? 0.5 : 1 }}
                         >
-                            ▶ Open Episode
+                            {nativePlaying ? "Loading..." : "▶ Watch Episode"}
                         </button>
                     </div>
                 ) : (

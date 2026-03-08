@@ -54,12 +54,14 @@ export async function searchManga(query: string = "", limit = 20, offset = 0): P
                 limit: limit.toString(),
                 offset: offset.toString(),
                 "order[followedCount]": "desc",
+                hasAvailableChapters: "true",
             });
 
             params.append("includes[]", "cover_art");
             params.append("includes[]", "author");
             params.append("contentRating[]", "safe");
             params.append("contentRating[]", "suggestive");
+            params.append("availableTranslatedLanguage[]", "en");
 
             if (query) {
                 params.append("title", query);
@@ -126,12 +128,14 @@ export async function getMangaByAuthor(authorId: string, limit = 20, offset = 0)
                 offset: offset.toString(),
                 "authors[]": authorId,
                 "order[followedCount]": "desc",
+                hasAvailableChapters: "true",
             });
 
             params.append("includes[]", "cover_art");
             params.append("includes[]", "author");
             params.append("contentRating[]", "safe");
             params.append("contentRating[]", "suggestive");
+            params.append("availableTranslatedLanguage[]", "en");
 
             const url = `${MANGADEX_API_URL}/manga?${params.toString()}`;
             const data = await requestMd(url);
@@ -322,10 +326,12 @@ export async function getFeaturedManga(): Promise<Manga[]> {
                 offset: "0",
                 "order[followedCount]": "desc",
                 "contentRating[]": "safe",
+                hasAvailableChapters: "true",
             });
 
             params.append("includes[]", "cover_art");
             params.append("includes[]", "author");
+            params.append("availableTranslatedLanguage[]", "en");
 
             const url = `${MANGADEX_API_URL}/manga?${params.toString()}`;
             const data = await requestMd(url);
