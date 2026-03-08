@@ -27,10 +27,16 @@ class WebViewExtractor(private val context: Context) {
             "(KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36"
     }
 
+    data class SubtitleTrack(
+        val url: String,
+        val label: String
+    )
+
     data class ExtractedStream(
         val m3u8Url: String,
         val referer: String,
-        val headers: Map<String, String> = emptyMap()
+        val headers: Map<String, String> = emptyMap(),
+        val subtitles: List<SubtitleTrack> = emptyList()
     )
 
     data class ExtractionResult(
@@ -104,6 +110,8 @@ class WebViewExtractor(private val context: Context) {
         var webView: WebView? = null
         var finished = false
         val allUrls = mutableListOf<String>()
+        val capturedSubtitles = mutableListOf<SubtitleTrack>()
+        var pendingStream: ExtractedStream? = null
 
         fun finish(stream: ExtractedStream?) {
             if (finished) return
@@ -114,14 +122,48 @@ class WebViewExtractor(private val context: Context) {
             onResult(stream)
         }
 
+        fun finishWithSubtitles() {
+            if (finished) return
+            val stream = pendingStream ?: return
+            val subs = synchronized(capturedSubtitles) { capturedSubtitles.toList() }
+            addDebug("Finishing with ${subs.size} subtitle tracks")
+            finish(stream.copy(subtitles = subs))
+        }
+
         val jsInterface = object {
             @JavascriptInterface
             fun onSourceFound(url: String) {
                 addDebug("JS_SOURCE: $url")
-                if (!finished && url.isNotEmpty()) {
-                    Handler(Looper.getMainLooper()).post {
-                        finish(ExtractedStream(m3u8Url = url, referer = referer))
+                if (!finished && pendingStream == null && url.isNotEmpty()) {
+                    pendingStream = ExtractedStream(m3u8Url = url, referer = referer)
+                    val delay = if (capturedSubtitles.isNotEmpty()) 500L else 1500L
+                    addDebug("Stream via JS, collecting subs for ${delay}ms (${capturedSubtitles.size} already)")
+                    Handler(Looper.getMainLooper()).postDelayed({
+                        finishWithSubtitles()
+                    }, delay)
+                }
+            }
+
+            @JavascriptInterface
+            fun onSubtitlesFound(json: String) {
+                addDebug("JS_SUBS: $json")
+                try {
+                    val arr = org.json.JSONArray(json)
+                    for (i in 0 until arr.length()) {
+                        val obj = arr.getJSONObject(i)
+                        val file = obj.optString("file", "")
+                        val label = obj.optString("label", "Track ${i + 1}")
+                        if (file.isNotEmpty()) {
+                            synchronized(capturedSubtitles) {
+                                if (capturedSubtitles.none { it.url == file }) {
+                                    capturedSubtitles.add(SubtitleTrack(url = file, label = label))
+                                    addDebug("SUBTITLE[$label]: $file")
+                                }
+                            }
+                        }
                     }
+                } catch (e: Exception) {
+                    addDebug("Sub parse error: ${e.message}")
                 }
             }
 
@@ -165,14 +207,30 @@ class WebViewExtractor(private val context: Context) {
 
                 synchronized(allUrls) { allUrls.add(url) }
 
+                if (isSubtitleUrl(url)) {
+                    val label = url.substringAfterLast("/")
+                        .substringBeforeLast(".")
+                        .replace(Regex("^\\d+-"), "")
+                        .ifEmpty { "Subtitle" }
+                    synchronized(capturedSubtitles) {
+                        if (capturedSubtitles.none { it.url == url }) {
+                            capturedSubtitles.add(SubtitleTrack(url = url, label = label))
+                            addDebug("SUBTITLE[$label]: $url")
+                        }
+                    }
+                }
+
                 if (isStreamUrl(url)) {
                     addDebug("STREAM_FOUND: $url")
-                    if (!finished) {
+                    if (!finished && pendingStream == null) {
                         val headers = mutableMapOf<String, String>()
                         request.requestHeaders?.forEach { (k, v) -> headers[k] = v }
-                        Handler(Looper.getMainLooper()).post {
-                            finish(ExtractedStream(m3u8Url = url, referer = referer, headers = headers))
-                        }
+                        pendingStream = ExtractedStream(m3u8Url = url, referer = referer, headers = headers)
+                        val delay = if (capturedSubtitles.isNotEmpty()) 500L else 1500L
+                        addDebug("Stream via intercept, collecting subs for ${delay}ms (${capturedSubtitles.size} already)")
+                        Handler(Looper.getMainLooper()).postDelayed({
+                            finishWithSubtitles()
+                        }, delay)
                     }
                 }
 
@@ -220,6 +278,11 @@ class WebViewExtractor(private val context: Context) {
             (url.contains("/hls/") && !url.contains(".js") && !url.contains(".css"))
     }
 
+    private fun isSubtitleUrl(url: String): Boolean {
+        val lower = url.lowercase()
+        return lower.endsWith(".vtt") || lower.endsWith(".srt") || lower.endsWith(".ass")
+    }
+
     private fun injectAutoPlayAndPoll(view: WebView?, addDebug: (String) -> Unit) {
         if (view == null) return
         val handler = Handler(Looper.getMainLooper())
@@ -258,6 +321,10 @@ class WebViewExtractor(private val context: Context) {
                         var p = jwplayer();
                         if (p && p.getPlaylistItem) {
                             var item = p.getPlaylistItem();
+                            if (item && item.tracks) {
+                                var subs = item.tracks.filter(function(t) { return t.kind === 'captions' || t.kind === 'subtitles'; });
+                                if (subs.length > 0) Extractor.onSubtitlesFound(JSON.stringify(subs));
+                            }
                             if (item && item.file) {
                                 Extractor.onSourceFound(item.file);
                                 return 'found';
@@ -265,9 +332,15 @@ class WebViewExtractor(private val context: Context) {
                         }
                         if (p && p.getPlaylist) {
                             var pl = p.getPlaylist();
-                            if (pl && pl.length > 0 && pl[0].file) {
-                                Extractor.onSourceFound(pl[0].file);
-                                return 'found';
+                            if (pl && pl.length > 0) {
+                                if (pl[0].tracks) {
+                                    var subs2 = pl[0].tracks.filter(function(t) { return t.kind === 'captions' || t.kind === 'subtitles'; });
+                                    if (subs2.length > 0) Extractor.onSubtitlesFound(JSON.stringify(subs2));
+                                }
+                                if (pl[0].file) {
+                                    Extractor.onSourceFound(pl[0].file);
+                                    return 'found';
+                                }
                             }
                         }
                         return 'jwp:' + (p && p.getState ? p.getState() : 'no-state');

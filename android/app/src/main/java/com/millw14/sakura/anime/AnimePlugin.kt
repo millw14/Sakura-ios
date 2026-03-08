@@ -95,11 +95,21 @@ class AnimePlugin : Plugin() {
                 Log.d(TAG, "Stream URL: ${stream.m3u8Url}")
 
                 // Step 4: Launch ExoPlayer on the main thread
+                val subsJson = org.json.JSONArray()
+                stream.subtitles.forEach { sub ->
+                    subsJson.put(org.json.JSONObject().apply {
+                        put("url", sub.url)
+                        put("label", sub.label)
+                    })
+                }
+                Log.d(TAG, "Passing ${stream.subtitles.size} subtitle tracks to player")
+
                 activity.runOnUiThread {
                     val intent = Intent(context, PlayerActivity::class.java).apply {
                         putExtra(PlayerActivity.EXTRA_STREAM_URL, stream.m3u8Url)
                         putExtra(PlayerActivity.EXTRA_REFERER, stream.referer)
                         putExtra(PlayerActivity.EXTRA_TITLE, title)
+                        putExtra(PlayerActivity.EXTRA_SUBTITLES, subsJson.toString())
                     }
                     context.startActivity(intent)
                     call.resolve(JSObject().put("success", true).put("url", stream.m3u8Url))
@@ -107,6 +117,69 @@ class AnimePlugin : Plugin() {
             } catch (e: Exception) {
                 Log.e(TAG, "playEpisode failed", e)
                 call.reject("Native playback failed: ${e.message}", e)
+            }
+        }.start()
+    }
+
+    /**
+     * Called from JS: Anime.searchHiAnime({ query: "..." })
+     * Uses the native scraper with CF bypass to search HiAnime.
+     */
+    @PluginMethod
+    fun searchHiAnime(call: PluginCall) {
+        val query = call.getString("query") ?: ""
+        Thread {
+            try {
+                ensureInitialized()
+                val scr = scraper!!
+                scr.ensureCfCookies()
+                val results = scr.searchHiAnime(query)
+
+                val arr = org.json.JSONArray()
+                results.forEach { r ->
+                    arr.put(org.json.JSONObject().apply {
+                        put("id", r.id)
+                        put("title", r.title)
+                    })
+                }
+                call.resolve(JSObject().put("results", arr.toString()))
+            } catch (e: Exception) {
+                Log.e(TAG, "searchHiAnime failed", e)
+                call.reject("Search failed: ${e.message}", e)
+            }
+        }.start()
+    }
+
+    /**
+     * Called from JS: Anime.getEpisodes({ animeId: "..." })
+     * Uses the native scraper with CF bypass to fetch episode list.
+     */
+    @PluginMethod
+    fun getEpisodes(call: PluginCall) {
+        val animeId = call.getString("animeId") ?: ""
+        if (animeId.isEmpty()) {
+            call.reject("Missing animeId parameter")
+            return
+        }
+        Thread {
+            try {
+                ensureInitialized()
+                val scr = scraper!!
+                scr.ensureCfCookies()
+                val episodes = scr.getEpisodes(animeId)
+
+                val arr = org.json.JSONArray()
+                episodes.forEach { ep ->
+                    arr.put(org.json.JSONObject().apply {
+                        put("id", ep.id)
+                        put("number", ep.number)
+                        put("title", ep.title)
+                    })
+                }
+                call.resolve(JSObject().put("episodes", arr.toString()))
+            } catch (e: Exception) {
+                Log.e(TAG, "getEpisodes failed", e)
+                call.reject("Episodes failed: ${e.message}", e)
             }
         }.start()
     }

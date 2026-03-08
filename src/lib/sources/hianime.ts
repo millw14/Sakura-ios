@@ -16,6 +16,17 @@ async function requestHianime(url: string, expectsJson = false) {
 }
 
 export async function searchHiAnime(query: string) {
+    if (Capacitor.isNativePlatform()) {
+        try {
+            const { Anime } = await import("@/plugins/anime");
+            const res = await Anime.searchHiAnime({ query });
+            return JSON.parse(res.results);
+        } catch (e) {
+            console.error("Native HiAnime Search Error", e);
+            return [];
+        }
+    }
+
     try {
         const html = await requestHianime(`${BASE_URL}/search?keyword=${encodeURIComponent(query)}`);
         const $ = cheerio.load(html);
@@ -24,9 +35,8 @@ export async function searchHiAnime(query: string) {
         $('.flw-item').each((_, el) => {
             const a = $(el).find('a.dynamic-name');
             const title = a.attr('title') || a.text();
-            let href = a.attr('href') || ''; // e.g. /naruto-20
+            let href = a.attr('href') || '';
 
-            // Extract the ID from the href 
             const idMatch = href.match(/-(\d+)(?:\?|$)/);
             if (idMatch && title) {
                 results.push({ id: idMatch[1], title });
@@ -40,6 +50,17 @@ export async function searchHiAnime(query: string) {
 }
 
 export async function getHiAnimeEpisodes(animeId: string) {
+    if (Capacitor.isNativePlatform()) {
+        try {
+            const { Anime } = await import("@/plugins/anime");
+            const res = await Anime.getEpisodes({ animeId });
+            return JSON.parse(res.episodes);
+        } catch (e) {
+            console.error("Native HiAnime Episodes Error", e);
+            return [];
+        }
+    }
+
     try {
         const data = await requestHianime(`${BASE_URL}/ajax/v2/episode/list/${animeId}`, true);
         const $ = cheerio.load(data.html);
