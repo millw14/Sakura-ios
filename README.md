@@ -4,13 +4,13 @@
 
 # 桜 Sakura
 
-**読む。集める。所有する。**
+**読む。観る。集める。所有する。**
 
-*Read. Collect. Own.*
+*Read. Watch. Collect. Own.*
 
 ---
 
-A manga platform that lives on **Solana** — because manga deserves more than a tab you close and forget.
+A manga & anime platform that lives on **Solana** — because your entertainment deserves more than a tab you close and forget.
 
 </div>
 
@@ -18,11 +18,11 @@ A manga platform that lives on **Solana** — because manga deserves more than a
 
 ## 🌸 what is this?
 
-Sakura is a love letter to manga readers who want something *different*.
+Sakura is a love letter to manga readers and anime watchers who want something *different*.
 
-Instead of ads, tracking, and chapters that disappear — Sakura gives you a clean, beautiful reading experience with a twist: **weekly passes as NFTs on Solana**. One pass, one week, unlimited reading.
+Instead of ads, tracking, and chapters that disappear — Sakura gives you a clean, beautiful experience with a twist: **weekly passes as NFTs on Solana**. One pass, one week, unlimited reading and streaming.
 
-No accounts. No emails. Just your wallet and your manga.
+No accounts. No emails. Just your wallet and your content.
 
 <br>
 
@@ -30,17 +30,39 @@ No accounts. No emails. Just your wallet and your manga.
 
 - 🇯🇵 **Bilingual UI** — Japanese + English throughout, because aesthetics matter
 - 📖 **Vertical scroll reader** — the way manga was meant to be read on screens
-- 🎴 **Weekly Pass** — 1 USDC gets you a week of unlimited chapters, minted as an NFT you actually own
+- 📺 **Native anime streaming** — browse, search, and watch anime with a built-in player
+- 🎴 **Weekly Pass** — 1 USDC gets you a week of unlimited access, minted as an NFT you actually own
 - 🔍 **Browse & search** — filter by genre, search by title, find your next obsession
 - 🌙 **Dark mode** — obviously. your eyes deserve it
 
 <br>
 
+## 📱 android app
+
+Sakura runs as a native Android app via Capacitor, with custom Kotlin plugins for:
+
+- **Anime playback** — native ExoPlayer for smooth HLS streaming, Cloudflare bypass, and multi-server fallback
+- **Offline downloads** — save chapters for reading without internet
+- **Biometric auth** — fingerprint/face unlock for your wallet
+
+<br>
+
+## 🛠 tech stack
+
+| Layer | Tech |
+|-------|------|
+| Frontend | Next.js, React, TypeScript |
+| Mobile | Capacitor, Kotlin, ExoPlayer |
+| Blockchain | Solana, Metaplex, Candy Machine |
+| Styling | Custom CSS with Japanese design language |
+
+<br>
+
 ## 💭 the dream
 
-The big idea is simple: *what if reading manga felt like it belonged in web3?*
+The big idea is simple: *what if reading manga and watching anime felt like it belonged in web3?*
 
-Not in a loud, "gm ser" kind of way — but quietly. Elegantly. A platform where owning your access pass actually means something, where the reading experience is gorgeous, and where manga fans feel at home.
+Not in a loud, "gm ser" kind of way — but quietly. Elegantly. A platform where owning your access pass actually means something, where the experience is gorgeous, and where fans feel at home.
 
 Sakura is still growing. More series, more features, more petals. 🌸
 

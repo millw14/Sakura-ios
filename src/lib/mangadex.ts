@@ -45,6 +45,40 @@ function getCoverUrl(mangaId: string, filename: string) {
     return `${UPLOADS_URL}/covers/${mangaId}/${filename}.256.jpg`;
 }
 
+/**
+ * Checks which manga IDs have actual readable chapters (not just DMCA'd stubs
+ * with 0 pages or external-only links). Uses the feed endpoint to sample
+ * recent chapters and verify at least one has pages > 0.
+ */
+async function filterReadableManga(mangaIds: string[]): Promise<Set<string>> {
+    const readable = new Set<string>();
+    const checks = mangaIds.map(async (id) => {
+        try {
+            const params = new URLSearchParams({
+                limit: "5",
+                "order[chapter]": "desc",
+            });
+            params.append("translatedLanguage[]", "en");
+            params.append("contentRating[]", "safe");
+            params.append("contentRating[]", "suggestive");
+
+            const url = `${MANGADEX_API_URL}/manga/${id}/feed?${params.toString()}`;
+            const data = await requestMd(url);
+
+            const hasReadable = data.data?.some(
+                (ch: any) => ch.attributes.pages > 0 && !ch.attributes.externalUrl
+            );
+            if (hasReadable) {
+                readable.add(id);
+            }
+        } catch {
+            readable.add(id);
+        }
+    });
+    await Promise.all(checks);
+    return readable;
+}
+
 // Search Manga
 export async function searchManga(query: string = "", limit = 20, offset = 0): Promise<Manga[]> {
     const cacheKey = `search:${query}:${limit}:${offset}`;
@@ -70,7 +104,7 @@ export async function searchManga(query: string = "", limit = 20, offset = 0): P
             const url = `${MANGADEX_API_URL}/manga?${params.toString()}`;
             const data = await requestMd(url);
 
-            return data.data.map((item: any) => {
+            const allManga: Manga[] = data.data.map((item: any) => {
                 const attributes = item.attributes;
                 const coverRel = item.relationships.find((r: any) => r.type === "cover_art");
                 const authorRel = item.relationships.find((r: any) => r.type === "author");
@@ -88,6 +122,9 @@ export async function searchManga(query: string = "", limit = 20, offset = 0): P
                     year: attributes.year,
                 };
             });
+
+            const readable = await filterReadableManga(allManga.map(m => m.id));
+            return allManga.filter(m => readable.has(m.id));
         } catch (error) {
             console.error("MangaDex Search Error:", error);
             return [];
@@ -140,7 +177,7 @@ export async function getMangaByAuthor(authorId: string, limit = 20, offset = 0)
             const url = `${MANGADEX_API_URL}/manga?${params.toString()}`;
             const data = await requestMd(url);
 
-            return data.data.map((item: any) => {
+            const allManga: Manga[] = data.data.map((item: any) => {
                 const attributes = item.attributes;
                 const coverRel = item.relationships.find((r: any) => r.type === "cover_art");
                 const authorRel = item.relationships.find((r: any) => r.type === "author");
@@ -158,6 +195,9 @@ export async function getMangaByAuthor(authorId: string, limit = 20, offset = 0)
                     year: attributes.year,
                 };
             });
+
+            const readable = await filterReadableManga(allManga.map(m => m.id));
+            return allManga.filter(m => readable.has(m.id));
         } catch (error) {
             console.error("MangaDex Author Manga Error:", error);
             return [];
@@ -336,7 +376,7 @@ export async function getFeaturedManga(): Promise<Manga[]> {
             const url = `${MANGADEX_API_URL}/manga?${params.toString()}`;
             const data = await requestMd(url);
 
-            const mangaList = data.data.map((item: any) => {
+            const allManga = data.data.map((item: any) => {
                 const attributes = item.attributes;
                 const coverRel = item.relationships.find((r: any) => r.type === "cover_art");
                 const authorRel = item.relationships.find((r: any) => r.type === "author");
@@ -354,6 +394,9 @@ export async function getFeaturedManga(): Promise<Manga[]> {
                     year: attributes.year,
                 };
             });
+
+            const readable = await filterReadableManga(allManga.map((m: any) => m.id));
+            const mangaList = allManga.filter((m: any) => readable.has(m.id));
 
             const stats = await getMangaStatistics(mangaList.map((m: any) => m.id));
             return mangaList.map((m: any) => ({
