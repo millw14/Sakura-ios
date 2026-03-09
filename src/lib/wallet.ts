@@ -5,29 +5,8 @@ import bs58 from "bs58";
 
 const WALLET_STORAGE_KEY = "sakura_embedded_wallet_secret";
 
-/**
- * Brute forces a vanity address starting with the given prefix.
- * WARNING: Lengths > 4 characters will take a very long time on mobile devices.
- * For 'sak', it should be relatively quick (a few seconds).
- */
-export async function generateVanityWallet(prefix: string = "sak"): Promise<Keypair> {
-    let keypair: Keypair;
-    let attempt = 0;
-    while (true) {
-        keypair = Keypair.generate();
-        let pubkeyUrlSafe = keypair.publicKey.toBase58();
-
-        // Check if starts with exact case. Base58 has all 's', 'a', 'k'.
-        if (pubkeyUrlSafe.toLowerCase().startsWith(prefix.toLowerCase())) {
-            return keypair;
-        }
-
-        attempt++;
-        // Yield to event loop occasionally to prevent completely freezing the UI
-        if (attempt % 500 === 0) {
-            await new Promise(resolve => setTimeout(resolve, 0));
-        }
-    }
+export function generateWallet(): Keypair {
+    return Keypair.generate();
 }
 
 export async function storeWalletSecurely(keypair: Keypair): Promise<void> {

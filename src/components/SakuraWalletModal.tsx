@@ -6,7 +6,7 @@ import { truncateAddress, getConnection, SAKURA_MINT, SOLANA_NETWORK } from "@/l
 import { LAMPORTS_PER_SOL } from "@solana/web3.js";
 import { getAssociatedTokenAddress } from "@solana/spl-token";
 import { getSakuraSwapQuote, executeSakuraSwap } from "@/lib/swap";
-import { generateVanityWallet, storeWalletSecurely, removeWalletSecurely } from "@/lib/wallet";
+import { generateWallet, storeWalletSecurely, removeWalletSecurely } from "@/lib/wallet";
 import bs58 from "bs58";
 import { Keypair } from "@solana/web3.js";
 
@@ -99,10 +99,7 @@ function SakuraWalletModal({ onClose }: { onClose: () => void }) {
             setError(null);
             setIsGenerating(true);
 
-            // This yields to event loop so UI can show "Generating..."
-            await new Promise(r => setTimeout(r, 50));
-
-            const newKeypair = await generateVanityWallet("sak");
+            const newKeypair = generateWallet();
             await storeWalletSecurely(newKeypair);
 
             // Connect using SakuraNativeWalletAdapter
@@ -334,8 +331,8 @@ function SakuraWalletModal({ onClose }: { onClose: () => void }) {
                                 <circle cx="18" cy="16" r="1" />
                             </svg>
                         </div>
-                        <h2 className="swm-title">{isGenerating ? "Creating Wallet..." : "Sign Up / Login"}</h2>
-                        <p className="swm-subtitle">{isGenerating ? "Please wait..." : "Create or import a Sakura embedded wallet."}</p>
+                        <h2 className="swm-title">Sign Up / Login</h2>
+                        <p className="swm-subtitle">Create or import a Sakura wallet.</p>
 
                         {error && (
                             <div className="swm-error">
@@ -343,12 +340,7 @@ function SakuraWalletModal({ onClose }: { onClose: () => void }) {
                             </div>
                         )}
 
-                        {isGenerating ? (
-                            <div className="swm-connecting" style={{ marginTop: '30px' }}>
-                                <div className="swm-spinner" />
-                                <span style={{ marginLeft: '10px' }}>Creating wallet...</span>
-                            </div>
-                        ) : isImporting ? (
+                        {isImporting ? (
                             <div className="swm-import-section" style={{ marginTop: '20px' }}>
                                 <input
                                     className="swm-import-input"
@@ -383,11 +375,11 @@ function SakuraWalletModal({ onClose }: { onClose: () => void }) {
                             </div>
                         ) : (
                             <div className="swm-section" style={{ marginTop: '20px' }}>
-                                <button className="swm-wallet-btn swm-wallet-btn-hero" onClick={handleCreateWallet}>
+                                <button className="swm-wallet-btn swm-wallet-btn-hero" onClick={handleCreateWallet} disabled={isGenerating}>
                                     <span className="swm-wallet-emoji">✨</span>
                                     <div className="swm-wallet-info">
-                                        <span className="swm-wallet-name">Create New Profile</span>
-                                        <span className="swm-wallet-tag">Generates a 'sak' vanity address</span>
+                                        <span className="swm-wallet-name">Create New Wallet</span>
+                                        <span className="swm-wallet-tag">Instant Solana wallet</span>
                                     </div>
                                 </button>
                                 <button className="swm-wallet-btn" onClick={() => setIsImporting(true)}>

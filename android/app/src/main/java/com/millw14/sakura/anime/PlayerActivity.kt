@@ -7,6 +7,7 @@ import android.view.View
 import android.view.WindowManager
 import androidx.annotation.OptIn
 import androidx.appcompat.app.AppCompatActivity
+import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MimeTypes
@@ -15,18 +16,12 @@ import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.common.TrackSelectionParameters
+import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.ExoPlayer
-import androidx.media3.exoplayer.hls.HlsMediaSource
-import androidx.media3.exoplayer.source.MediaSource
-import androidx.media3.exoplayer.source.MergingMediaSource
-import androidx.media3.exoplayer.source.SingleSampleMediaSource
+import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
 
-/**
- * Fullscreen ExoPlayer activity for HLS (.m3u8) anime playback.
- * Launched by AnimePlugin with the stream URL passed via Intent extras.
- */
 @OptIn(UnstableApi::class)
 class PlayerActivity : AppCompatActivity() {
 
@@ -53,6 +48,7 @@ class PlayerActivity : AppCompatActivity() {
         playerView = PlayerView(this)
         playerView.keepScreenOn = true
         playerView.resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
+        playerView.setShowSubtitleButton(true)
         setContentView(playerView)
 
         val streamUrl = intent.getStringExtra(EXTRA_STREAM_URL)
@@ -79,34 +75,52 @@ class PlayerActivity : AppCompatActivity() {
                 )
             )
 
-        val hlsSource: MediaSource = HlsMediaSource.Factory(httpDataSourceFactory)
-            .createMediaSource(MediaItem.fromUri(url))
+        val subtitleConfigs = if (!retriedWithoutSubs) buildSubtitleConfigs() else emptyList()
+        hasSubtitles = subtitleConfigs.isNotEmpty()
 
-        val subtitleSources = if (!retriedWithoutSubs) parseSubtitles(httpDataSourceFactory) else emptyList()
-        hasSubtitles = subtitleSources.isNotEmpty()
-
-        val mediaSource = if (hasSubtitles) {
-            android.util.Log.d("PlayerActivity", "Merging ${subtitleSources.size} subtitle tracks")
-            try {
-                MergingMediaSource(hlsSource, *subtitleSources.toTypedArray())
-            } catch (e: Exception) {
-                android.util.Log.e("PlayerActivity", "MergingMediaSource failed, using HLS only", e)
-                hasSubtitles = false
-                hlsSource
+        val mediaItem = MediaItem.Builder()
+            .setUri(url)
+            .setMimeType(MimeTypes.APPLICATION_M3U8)
+            .apply {
+                if (subtitleConfigs.isNotEmpty()) {
+                    setSubtitleConfigurations(subtitleConfigs)
+                }
             }
-        } else {
-            hlsSource
+            .build()
+
+        val mediaSource = DefaultMediaSourceFactory(httpDataSourceFactory)
+            .createMediaSource(mediaItem)
+
+        if (hasSubtitles) {
+            android.util.Log.d("PlayerActivity", "Loading ${subtitleConfigs.size} subtitle tracks via DefaultMediaSourceFactory")
         }
 
-        player = ExoPlayer.Builder(this).build().also { exo ->
+        val loadControl = DefaultLoadControl.Builder()
+            .setBufferDurationsMs(
+                50_000,
+                150_000,
+                2_500,
+                5_000
+            )
+            .setPrioritizeTimeOverSizeThresholds(true)
+            .build()
+
+        player = ExoPlayer.Builder(this)
+            .setLoadControl(loadControl)
+            .build().also { exo ->
             playerView.player = exo
-            exo.trackSelectionParameters = TrackSelectionParameters.Builder(this)
-                .setMaxVideoSizeSd()
-                .setPreferredAudioLanguage("ja")
+
+            val audioAttributes = AudioAttributes.Builder()
+                .setUsage(C.USAGE_MEDIA)
+                .setContentType(C.AUDIO_CONTENT_TYPE_MOVIE)
                 .build()
-            exo.trackSelectionParameters = exo.trackSelectionParameters.buildUpon()
+            exo.setAudioAttributes(audioAttributes, true)
+
+            exo.trackSelectionParameters = TrackSelectionParameters.Builder(this)
                 .setMaxVideoSize(Int.MAX_VALUE, Int.MAX_VALUE)
                 .setMaxAudioChannelCount(Int.MAX_VALUE)
+                .setPreferredAudioLanguage("ja")
+                .setPreferredTextLanguage("en")
                 .build()
             exo.setMediaSource(mediaSource)
             exo.playWhenReady = true
@@ -134,11 +148,11 @@ class PlayerActivity : AppCompatActivity() {
         }
     }
 
-    private fun parseSubtitles(dataSourceFactory: DefaultHttpDataSource.Factory): List<MediaSource> {
+    private fun buildSubtitleConfigs(): List<MediaItem.SubtitleConfiguration> {
         val json = intent.getStringExtra(EXTRA_SUBTITLES) ?: return emptyList()
         if (json.isEmpty() || json == "[]") return emptyList()
 
-        val sources = mutableListOf<MediaSource>()
+        val configs = mutableListOf<MediaItem.SubtitleConfiguration>()
         try {
             val arr = org.json.JSONArray(json)
             for (i in 0 until arr.length()) {
@@ -152,22 +166,20 @@ class PlayerActivity : AppCompatActivity() {
                     else -> MimeTypes.TEXT_VTT
                 }
 
-                val config = MediaItem.SubtitleConfiguration.Builder(Uri.parse(subUrl))
-                    .setMimeType(mimeType)
-                    .setLabel(label)
-                    .setSelectionFlags(if (i == 0) C.SELECTION_FLAG_DEFAULT else 0)
-                    .build()
-
-                sources.add(
-                    SingleSampleMediaSource.Factory(dataSourceFactory)
-                        .createMediaSource(config, C.TIME_UNSET)
+                configs.add(
+                    MediaItem.SubtitleConfiguration.Builder(Uri.parse(subUrl))
+                        .setMimeType(mimeType)
+                        .setLabel(label)
+                        .setLanguage("en")
+                        .setSelectionFlags(C.SELECTION_FLAG_DEFAULT)
+                        .build()
                 )
-                android.util.Log.d("PlayerActivity", "Subtitle[$i]: $label -> $subUrl")
+                android.util.Log.d("PlayerActivity", "Subtitle[$i]: $label -> $subUrl (mime=$mimeType)")
             }
         } catch (e: Exception) {
-            android.util.Log.e("PlayerActivity", "Failed to parse subtitles", e)
+            android.util.Log.e("PlayerActivity", "Failed to parse subtitle configs", e)
         }
-        return sources
+        return configs
     }
 
     private fun hideSystemUI() {

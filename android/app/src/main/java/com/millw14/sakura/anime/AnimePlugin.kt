@@ -7,6 +7,9 @@ import com.getcapacitor.Plugin
 import com.getcapacitor.PluginCall
 import com.getcapacitor.PluginMethod
 import com.getcapacitor.annotation.CapacitorPlugin
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import java.util.concurrent.TimeUnit
 
 /**
  * Capacitor plugin that exposes anime playback to the React frontend.
@@ -68,6 +71,7 @@ class AnimePlugin : Plugin() {
                 // Step 3: Try each server until one works
                 var lastDebugLog = ""
                 var stream: WebViewExtractor.ExtractedStream? = null
+                var workingEmbedUrl = ""
 
                 for ((embedUrl, serverName) in embedUrls) {
                     Log.d(TAG, "Trying server $serverName: $embedUrl")
@@ -76,6 +80,7 @@ class AnimePlugin : Plugin() {
 
                     if (extraction.stream != null) {
                         stream = extraction.stream
+                        workingEmbedUrl = embedUrl
                         Log.d(TAG, "Server $serverName worked!")
                         break
                     }
@@ -94,15 +99,22 @@ class AnimePlugin : Plugin() {
 
                 Log.d(TAG, "Stream URL: ${stream.m3u8Url}")
 
+                // Step 3.5: Fetch subtitles from MegaCloud API (safe, won't affect playback)
+                var allSubs = stream.subtitles.toMutableList()
+                if (allSubs.isEmpty() && workingEmbedUrl.isNotEmpty()) {
+                    val apiSubs = fetchSubtitlesFromApi(workingEmbedUrl)
+                    allSubs.addAll(apiSubs)
+                }
+
                 // Step 4: Launch ExoPlayer on the main thread
                 val subsJson = org.json.JSONArray()
-                stream.subtitles.forEach { sub ->
+                allSubs.forEach { sub ->
                     subsJson.put(org.json.JSONObject().apply {
                         put("url", sub.url)
                         put("label", sub.label)
                     })
                 }
-                Log.d(TAG, "Passing ${stream.subtitles.size} subtitle tracks to player")
+                Log.d(TAG, "Passing ${allSubs.size} subtitle tracks to player")
 
                 activity.runOnUiThread {
                     val intent = Intent(context, PlayerActivity::class.java).apply {
@@ -182,6 +194,68 @@ class AnimePlugin : Plugin() {
                 call.reject("Episodes failed: ${e.message}", e)
             }
         }.start()
+    }
+
+    /**
+     * Fetches subtitle tracks directly from MegaCloud's getSources API.
+     * The tracks array is always in plaintext even when sources are encrypted.
+     * This runs after stream extraction succeeds — if it fails, playback still works.
+     */
+    private fun fetchSubtitlesFromApi(embedUrl: String): List<WebViewExtractor.SubtitleTrack> {
+        try {
+            val parsed = java.net.URL(embedUrl)
+            val baseUrl = "${parsed.protocol}://${parsed.host}"
+            val pathParts = parsed.path.split("/").filter { it.isNotEmpty() }
+            val videoId = pathParts.last().split("?")[0]
+
+            val eIdx = pathParts.indexOfFirst { it.startsWith("e-") }
+            val prefix = if (eIdx > 0) "/" + pathParts.subList(0, eIdx).joinToString("/") else "/embed-2"
+            val eVersion = if (eIdx >= 0) pathParts[eIdx] else "e-1"
+            val apiUrl = "$baseUrl$prefix/ajax/$eVersion/getSources?id=$videoId"
+
+            Log.d(TAG, "Fetching subtitles from API: $apiUrl")
+
+            val client = OkHttpClient.Builder()
+                .connectTimeout(10, TimeUnit.SECONDS)
+                .readTimeout(10, TimeUnit.SECONDS)
+                .build()
+
+            val request = Request.Builder()
+                .url(apiUrl)
+                .header("User-Agent", "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36")
+                .header("Referer", "https://hianime.to/")
+                .header("X-Requested-With", "XMLHttpRequest")
+                .header("Accept", "*/*")
+                .build()
+
+            val response = client.newCall(request).execute()
+            if (!response.isSuccessful) {
+                Log.w(TAG, "Subtitle API returned ${response.code}")
+                response.close()
+                return emptyList()
+            }
+
+            val body = response.body?.string() ?: return emptyList()
+            val json = org.json.JSONObject(body)
+            val tracks = json.optJSONArray("tracks") ?: return emptyList()
+
+            val subtitles = mutableListOf<WebViewExtractor.SubtitleTrack>()
+            for (i in 0 until tracks.length()) {
+                val track = tracks.getJSONObject(i)
+                val file = track.optString("file", "")
+                val label = track.optString("label", "Track ${i + 1}")
+                val kind = track.optString("kind", "")
+                if (file.isNotEmpty() && kind != "thumbnails") {
+                    subtitles.add(WebViewExtractor.SubtitleTrack(url = file, label = label))
+                }
+            }
+
+            Log.d(TAG, "API returned ${subtitles.size} subtitle tracks")
+            return subtitles
+        } catch (e: Exception) {
+            Log.w(TAG, "Subtitle API fetch failed (non-fatal): ${e.message}")
+            return emptyList()
+        }
     }
 
     /**
