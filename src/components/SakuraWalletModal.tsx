@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useContext, useState, useCallback, useEffect } from "react";
+import { createContext, useContext, useState, useCallback, useEffect, useRef } from "react";
 import { useWallet } from "@solana/wallet-adapter-react";
 import { truncateAddress, getConnection, SAKURA_MINT, SOLANA_NETWORK } from "@/lib/solana";
 import { LAMPORTS_PER_SOL } from "@solana/web3.js";
@@ -63,12 +63,10 @@ function SakuraWalletModal({ onClose }: { onClose: () => void }) {
 
         const conn = getConnection();
 
-        // Fetch SOL Balance
         conn.getBalance(publicKey)
             .then(b => setBalance(b / LAMPORTS_PER_SOL))
-            .catch(() => setBalance(null));
+            .catch((e) => { console.warn("SOL balance fetch failed:", e); setBalance(0); });
 
-        // Fetch SAKURA Token Balance
         import("@/lib/solana").then(({ SAKURA_MINT, SAKURA_DECIMALS }) => {
             conn.getParsedTokenAccountsByOwner(publicKey, { mint: SAKURA_MINT })
                 .then(accounts => {
@@ -83,16 +81,36 @@ function SakuraWalletModal({ onClose }: { onClose: () => void }) {
                         setSakuraBalance(0);
                     }
                 })
-                .catch(() => setSakuraBalance(null));
+                .catch((e) => { console.warn("SAKURA balance fetch failed:", e); setSakuraBalance(0); });
         });
     }, [publicKey]);
 
-    // Fetch SOL and SAKURA balances when connected
+    const [balanceLoading, setBalanceLoading] = useState(false);
+    const refreshTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
     useEffect(() => {
         fetchBalances();
+
+        if (refreshTimerRef.current) clearInterval(refreshTimerRef.current);
+        if (publicKey) {
+            refreshTimerRef.current = setInterval(fetchBalances, 15_000);
+        }
+        return () => {
+            if (refreshTimerRef.current) clearInterval(refreshTimerRef.current);
+        };
     }, [fetchBalances]);
 
-    // Removed buggy auto-close useEffect that was closing the modal unconditionally when already connected
+    const connectAfterStore = async () => {
+        if (!wallets || wallets.length === 0) return;
+        const adapter = wallets[0].adapter;
+        select(adapter.name);
+        await new Promise(r => setTimeout(r, 150));
+        // Call adapter.connect() directly — the hook's connect() can have stale
+        // internal state from a failed auto-connect on first load (no key yet).
+        // The adapter emits 'connect', which the WalletProvider listens to and
+        // updates React state, so `connected` / `publicKey` will update properly.
+        await adapter.connect();
+    };
 
     const handleCreateWallet = async () => {
         try {
@@ -101,14 +119,7 @@ function SakuraWalletModal({ onClose }: { onClose: () => void }) {
 
             const newKeypair = generateWallet();
             await storeWalletSecurely(newKeypair);
-
-            // Connect using SakuraNativeWalletAdapter
-            if (wallets && wallets.length > 0) {
-                const adapterName = wallets[0].adapter.name;
-                select(adapterName);
-                await connect();
-                setTimeout(() => onClose(), 800);
-            }
+            await connectAfterStore();
         } catch (err: any) {
             console.error("Wallet generation error:", err);
             setError(err?.message || "Failed to create wallet");
@@ -131,13 +142,7 @@ function SakuraWalletModal({ onClose }: { onClose: () => void }) {
             }
 
             await storeWalletSecurely(keypair);
-
-            if (wallets && wallets.length > 0) {
-                const adapterName = wallets[0].adapter.name;
-                select(adapterName);
-                await connect();
-                setTimeout(() => onClose(), 800);
-            }
+            await connectAfterStore();
         } catch (err: any) {
             console.error("Wallet import error:", err);
             setError(err?.message || "Failed to import wallet");
@@ -155,7 +160,7 @@ function SakuraWalletModal({ onClose }: { onClose: () => void }) {
     }, [disconnect, onClose]);
 
     const handleSwap = async () => {
-        if (!publicKey || !signTransaction || balance === null) return;
+        if (!publicKey || !signTransaction) return;
         setSwapError(null);
         setIsSwapping(true);
 
@@ -165,8 +170,8 @@ function SakuraWalletModal({ onClose }: { onClose: () => void }) {
                 throw new Error("Invalid swap amount entered.");
             }
 
-            // Ensure they leave 0.015 SOL for gas and account rent
-            if (amount > balance - 0.015) {
+            const currentBal = balance ?? 0;
+            if (amount > currentBal - 0.015) {
                 throw new Error("Insufficient SOL balance to swap. Please leave at least 0.015 SOL for network fees.");
             }
 
@@ -241,25 +246,37 @@ function SakuraWalletModal({ onClose }: { onClose: () => void }) {
                         </div>
                         <h2 className="swm-title">接続済み — Connected</h2>
                         <p className="swm-subtitle">Sakura Native Wallet</p>
+                        <span style={{ display: 'inline-block', fontSize: 10, background: 'rgba(0,200,83,0.15)', color: '#00c853', padding: '2px 8px', borderRadius: 20, marginBottom: 8 }}>
+                            Solana {SOLANA_NETWORK}
+                        </span>
 
                         <div className="swm-address-card" onClick={handleCopy}>
                             <span className="swm-address">{truncateAddress(publicKey.toBase58())}</span>
                             <span className="swm-copy-hint">{copied ? "✓ Copied!" : "📋 Tap to copy"}</span>
                         </div>
 
-                        {balance !== null && (
-                            <div className="swm-balance">
-                                <span className="swm-balance-amount">◎ {balance.toFixed(4)}</span>
-                                <span className="swm-balance-label">SOL</span>
-                            </div>
-                        )}
+                        <div className="swm-balance">
+                            <span className="swm-balance-amount">◎ {balance !== null ? balance.toFixed(4) : '...'}</span>
+                            <span className="swm-balance-label">SOL</span>
+                        </div>
 
-                        {sakuraBalance !== null && (
-                            <div className="swm-balance" style={{ marginTop: '8px', background: 'rgba(255, 105, 180, 0.1)', borderColor: 'rgba(255, 105, 180, 0.3)' }}>
-                                <span className="swm-balance-amount" style={{ color: 'var(--sakura-pink)' }}>🌸 {sakuraBalance.toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>
-                                <span className="swm-balance-label" style={{ color: 'var(--sakura-pink)' }}>$SAKURA</span>
-                            </div>
-                        )}
+                        <div className="swm-balance" style={{ marginTop: '8px', background: 'rgba(255, 105, 180, 0.1)', borderColor: 'rgba(255, 105, 180, 0.3)' }}>
+                            <span className="swm-balance-amount" style={{ color: 'var(--sakura-pink)' }}>🌸 {sakuraBalance !== null ? sakuraBalance.toLocaleString(undefined, { maximumFractionDigits: 0 }) : '...'}</span>
+                            <span className="swm-balance-label" style={{ color: 'var(--sakura-pink)' }}>$SAKURA</span>
+                        </div>
+
+                        <button
+                            onClick={() => { setBalanceLoading(true); fetchBalances(); setTimeout(() => setBalanceLoading(false), 1500); }}
+                            disabled={balanceLoading}
+                            style={{
+                                marginTop: 8, padding: '6px 16px', fontSize: 12,
+                                background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)',
+                                borderRadius: 8, color: 'var(--text-muted)', cursor: 'pointer',
+                                opacity: balanceLoading ? 0.5 : 1, width: '100%'
+                            }}
+                        >
+                            {balanceLoading ? 'Refreshing...' : '↻ Refresh Balances'}
+                        </button>
 
                         {/* Swap $SAKURA Interface */}
                         {(SOLANA_NETWORK as string) === 'mainnet-beta' && !showSwap && (

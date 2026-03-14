@@ -1,10 +1,11 @@
 "use client";
 
-import { useState, useEffect, Suspense } from "react";
+import { useState, useEffect, useCallback, Suspense } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import { fetchEpisodeSources, type StreamingSource, fetchAnimeInfo, type AnimeInfo } from "@/lib/anime";
 import Link from "next/link";
 import { Capacitor } from '@capacitor/core';
+import { getLocal, STORAGE_KEYS, saveAnimeWatchEntry } from "@/lib/storage";
 
 function AnimeWatchInner() {
     const searchParams = useSearchParams();
@@ -19,17 +20,21 @@ function AnimeWatchInner() {
     const [nativePlaying, setNativePlaying] = useState(false);
     const [isNative] = useState(Capacitor.isNativePlatform());
 
+    const currentEpisodeIndex = anime?.episodes.findIndex(e => e.id === episodeId) ?? -1;
+    const currentEpisode = currentEpisodeIndex >= 0 ? anime?.episodes[currentEpisodeIndex] : null;
+    const nextEpisode = currentEpisodeIndex >= 0 && currentEpisodeIndex < (anime?.episodes.length || 0) - 1
+        ? anime?.episodes[currentEpisodeIndex + 1]
+        : null;
+
     useEffect(() => {
         async function load() {
             setLoading(true);
             setError(null);
             try {
                 if (isNative) {
-                    // Native: only load anime metadata — the Kotlin plugin handles streaming
                     const animeData = await fetchAnimeInfo(id);
                     if (animeData) setAnime(animeData);
                 } else {
-                    // Web: load both metadata and embed source for iframe
                     const [animeData, sourceData] = await Promise.all([
                         fetchAnimeInfo(id),
                         fetchEpisodeSources(episodeId)
@@ -51,34 +56,67 @@ function AnimeWatchInner() {
         }
     }, [id, episodeId, isNative]);
 
-    const playNative = async () => {
+    const playNative = useCallback(async () => {
+        if (!anime) return;
+        const epIdx = anime.episodes.findIndex(e => e.id === episodeId);
+        const currentEp = epIdx >= 0 ? anime.episodes[epIdx] : null;
+        const nextEp = epIdx >= 0 && epIdx < anime.episodes.length - 1 ? anime.episodes[epIdx + 1] : null;
+        const title = currentEp?.title || `Episode ${currentEp?.number || "?"}`;
+
         try {
             setNativePlaying(true);
             setError(null);
+
+            saveAnimeWatchEntry({
+                animeId: id,
+                episodeId,
+                animeTitle: anime.title,
+                episodeTitle: title,
+                episodeNumber: currentEp?.number || 0,
+                image: anime.image,
+                timestamp: Date.now()
+            });
+
             const { Anime } = await import("@/plugins/anime");
-            const currentEp = anime?.episodes.find(e => e.id === episodeId);
-            const title = currentEp?.title || `Episode ${currentEp?.number || "?"}`;
-            await Anime.playEpisode({ episodeId, title });
+
+            const allDl = getLocal<Record<string, any>>(STORAGE_KEYS.ANIME_DOWNLOADS, {});
+            const localEntry = allDl[episodeId];
+
+            let result: { completed: boolean };
+            if (localEntry?.state === 'completed' && localEntry?.filePath) {
+                result = await Anime.playLocalEpisode({
+                    filePath: localEntry.filePath,
+                    title,
+                    episodeId,
+                    hasNext: !!nextEp,
+                    nextEpisodeTitle: nextEp?.title || (nextEp ? `Episode ${nextEp.number}` : "")
+                });
+            } else {
+                result = await Anime.playEpisode({
+                    episodeId,
+                    title,
+                    hasNext: !!nextEp,
+                    nextEpisodeTitle: nextEp?.title || (nextEp ? `Episode ${nextEp.number}` : "")
+                });
+            }
+
+            if (result.completed && nextEp) {
+                router.push(`/anime/watch?id=${encodeURIComponent(id)}&ep=${encodeURIComponent(nextEp.id)}`);
+                return;
+            }
         } catch (e: any) {
             console.error('[Anime] Native playback error:', e);
             setError(e.message || "Native playback failed. Try again.");
         } finally {
             setNativePlaying(false);
         }
-    };
+    }, [anime, episodeId, id, router]);
 
-    // Auto-launch native player once metadata is loaded
     useEffect(() => {
         if (isNative && anime && !error && !nativePlaying) {
             playNative();
         }
     }, [isNative, anime, episodeId]);
-
-    const currentEpisodeIndex = anime?.episodes.findIndex(e => e.id === episodeId) ?? -1;
-    const currentEpisode = currentEpisodeIndex >= 0 ? anime?.episodes[currentEpisodeIndex] : null;
-    const nextEpisode = currentEpisodeIndex >= 0 && currentEpisodeIndex < (anime?.episodes.length || 0) - 1
-        ? anime?.episodes[currentEpisodeIndex + 1]
-        : null;
 
     if (loading) {
         return (
@@ -134,7 +172,6 @@ function AnimeWatchInner() {
             display: "flex",
             flexDirection: "column"
         }}>
-            {/* Cinematic Header Overlay */}
             <header style={{
                 position: "absolute",
                 top: 0, left: 0, right: 0,
@@ -171,7 +208,6 @@ function AnimeWatchInner() {
                 </Link>
             </header>
 
-            {/* Main Player Display */}
             <div style={{
                 flex: 1,
                 display: "flex",
@@ -216,7 +252,6 @@ function AnimeWatchInner() {
                 )}
             </div>
 
-            {/* Cinematic Footer / Auto-Next */}
             <footer style={{
                 padding: "20px",
                 background: "linear-gradient(to top, rgba(0,0,0,0.9), transparent)",
@@ -229,7 +264,10 @@ function AnimeWatchInner() {
                 <div style={{ flex: 1 }}>
                     <h3 style={{ margin: "0 0 4px 0", fontSize: 18 }}>{currentEpisode?.title || `Episode ${currentEpisode?.number}`}</h3>
                     <p style={{ margin: 0, color: "var(--text-muted)", fontSize: 14 }}>
-                        Streaming via Sakura Engine
+                        {(() => {
+                            const allDl = typeof window !== 'undefined' ? getLocal<Record<string, any>>(STORAGE_KEYS.ANIME_DOWNLOADS, {}) : {};
+                            return allDl[episodeId]?.state === 'completed' ? "Playing offline" : "Streaming via Sakura Engine";
+                        })()}
                     </p>
                 </div>
 

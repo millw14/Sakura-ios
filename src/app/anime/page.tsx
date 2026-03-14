@@ -4,7 +4,8 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import Header from "@/components/Header";
 import AnimeCard from "@/components/AnimeCard";
 import { searchAnime, fetchAiringAnime, type AnimeResult } from "@/lib/anime";
-import { getLocal, setLocal, STORAGE_KEYS } from "@/lib/storage";
+import { getLocal, setLocal, STORAGE_KEYS, getAnimeHistory, type AnimeHistoryEntry } from "@/lib/storage";
+import Link from "next/link";
 
 // Debounce hook
 function useDebounce(value: string, delay: number) {
@@ -26,25 +27,18 @@ export default function AnimeBrowsePage() {
     const [airingLoading, setAiringLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const debouncedSearch = useDebounce(search, 800);
+    const [continueWatching, setContinueWatching] = useState<AnimeHistoryEntry[]>([]);
 
-    // Recent searches
     const [recentSearches, setRecentSearches] = useState<string[]>([]);
     const [showRecent, setShowRecent] = useState(false);
     const searchRef = useRef<HTMLDivElement>(null);
 
-    // Load airing anime on mount
     useEffect(() => {
-        async function loadAiring() {
-            setAiringLoading(true);
-            try {
-                const data = await fetchAiringAnime();
-                setAiringAnime(data);
-            } catch (e) {
-                console.error("Failed to load airing anime", e);
-            }
+        setContinueWatching(getAnimeHistory());
+        fetchAiringAnime().then(data => {
+            setAiringAnime(data);
             setAiringLoading(false);
-        }
-        loadAiring();
+        }).catch(() => setAiringLoading(false));
     }, []);
 
     useEffect(() => {
@@ -197,9 +191,58 @@ export default function AnimeBrowsePage() {
                         </>
                     )}
 
-                    {/* Airing/Trending — shown when not searching */}
+                    {/* Continue Watching + Airing/Trending — shown when not searching */}
                     {!isSearching && (
                         <>
+                            {continueWatching.length > 0 && (
+                                <>
+                                    <div className="section-header" style={{ marginTop: 24 }}>
+                                        <h2 className="section-title" style={{ fontSize: 20 }}>▶ 視聴を続ける</h2>
+                                        <p className="section-subtitle">Continue Watching</p>
+                                    </div>
+                                    <div style={{ display: 'flex', gap: 12, overflowX: 'auto', paddingBottom: 8, WebkitOverflowScrolling: 'touch' }}>
+                                        {continueWatching.map(entry => (
+                                            <Link
+                                                key={entry.animeId}
+                                                href={`/anime/watch?id=${encodeURIComponent(entry.animeId)}&ep=${encodeURIComponent(entry.episodeId)}`}
+                                                style={{ textDecoration: 'none', flexShrink: 0, width: 140 }}
+                                            >
+                                                <div style={{ position: 'relative', borderRadius: 'var(--radius-md)', overflow: 'hidden', aspectRatio: '2/3', background: 'rgba(255,255,255,0.05)' }}>
+                                                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                                                    <img
+                                                        src={entry.image || '/sakura.png'}
+                                                        alt={entry.animeTitle}
+                                                        referrerPolicy="no-referrer"
+                                                        style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                                                    />
+                                                    <div style={{
+                                                        position: 'absolute', bottom: 0, left: 0, right: 0,
+                                                        background: 'linear-gradient(transparent, rgba(0,0,0,0.9))',
+                                                        padding: '24px 8px 8px'
+                                                    }}>
+                                                        <span style={{
+                                                            display: 'inline-block',
+                                                            background: 'var(--sakura-pink)',
+                                                            color: '#fff',
+                                                            fontSize: 11,
+                                                            fontWeight: 700,
+                                                            padding: '2px 6px',
+                                                            borderRadius: 4,
+                                                            marginBottom: 4
+                                                        }}>
+                                                            Ep {entry.episodeNumber}
+                                                        </span>
+                                                        <p style={{ margin: 0, color: '#fff', fontSize: 12, fontWeight: 600, lineHeight: 1.3, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                                            {entry.animeTitle}
+                                                        </p>
+                                                    </div>
+                                                </div>
+                                            </Link>
+                                        ))}
+                                    </div>
+                                </>
+                            )}
+
                             <div className="section-header" style={{ marginTop: 24 }}>
                                 <h2 className="section-title" style={{ fontSize: 20 }}>🔥 放送中</h2>
                                 <p className="section-subtitle">Currently Airing</p>

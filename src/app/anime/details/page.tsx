@@ -1,38 +1,137 @@
 "use client";
 
-import { useState, useEffect, Suspense } from "react";
+import { useState, useEffect, useRef, useCallback, Suspense } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import Header from "@/components/Header";
-import { fetchAnimeInfo, type AnimeInfo } from "@/lib/anime";
+import { fetchAnimeInfo, getCachedAnimeInfo, refreshAnimeInfo, type AnimeInfo } from "@/lib/anime";
 import Link from "next/link";
+import { Capacitor } from "@capacitor/core";
+import { getLocal, setLocal, STORAGE_KEYS } from "@/lib/storage";
+import type { DownloadProgressEvent } from "@/plugins/anime";
+
+interface AnimeDownloadEntry {
+    episodeId: string;
+    animeId: string;
+    animeTitle: string;
+    episodeTitle: string;
+    episodeNumber: number;
+    state: string;
+    progress: number;
+    filePath?: string;
+    timestamp: number;
+}
 
 function AnimeDetailsInner() {
     const searchParams = useSearchParams();
     const router = useRouter();
     const id = searchParams.get("id") || "";
+    const isNative = Capacitor.isNativePlatform();
 
     const [anime, setAnime] = useState<AnimeInfo | null>(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
+    const [dlMap, setDlMap] = useState<Record<string, AnimeDownloadEntry>>({});
+    const listenerRef = useRef<{ remove: () => void } | null>(null);
 
     useEffect(() => {
-        async function load() {
-            setLoading(true);
+        setDlMap(getLocal<Record<string, AnimeDownloadEntry>>(STORAGE_KEYS.ANIME_DOWNLOADS, {}));
+    }, []);
+
+    useEffect(() => {
+        if (!isNative) return;
+        let handle: { remove: () => void } | null = null;
+        (async () => {
+            const { Anime } = await import("@/plugins/anime");
+            handle = await Anime.addListener("downloadProgress", (event: DownloadProgressEvent) => {
+                setDlMap(prev => {
+                    const updated = { ...prev };
+                    if (updated[event.episodeId]) {
+                        updated[event.episodeId] = { ...updated[event.episodeId], state: event.state, progress: event.progress };
+                        if (event.filePath) updated[event.episodeId].filePath = event.filePath;
+                    }
+                    setLocal(STORAGE_KEYS.ANIME_DOWNLOADS, updated);
+                    return updated;
+                });
+            });
+            listenerRef.current = handle;
+        })();
+        return () => { handle?.remove(); };
+    }, [isNative]);
+
+    const handleDownload = useCallback(async (ep: { id: string; number: number; title: string }) => {
+        if (!anime) return;
+        const existing = dlMap[ep.id];
+        if (existing?.state === 'downloading' || existing?.state === 'extracting') return;
+        if (existing?.state === 'completed' && existing.filePath) {
             try {
-                const data = await fetchAnimeInfo(id);
-                if (data) {
-                    setAnime(data);
-                } else {
-                    setError("Failed to resolve this Anime.");
-                }
-            } catch (e: any) {
-                setError(e.message || "Failed to load Anime details.");
+                const { Anime } = await import("@/plugins/anime");
+                await Anime.playLocalEpisode({ filePath: existing.filePath, title: ep.title || `Episode ${ep.number}` });
+            } catch (e) { console.error(e); }
+            return;
+        }
+
+        const entry: AnimeDownloadEntry = {
+            episodeId: ep.id,
+            animeId: id,
+            animeTitle: anime.title,
+            episodeTitle: ep.title || `Episode ${ep.number}`,
+            episodeNumber: ep.number,
+            state: 'extracting',
+            progress: 0,
+            timestamp: Date.now()
+        };
+        setDlMap(prev => {
+            const updated = { ...prev, [ep.id]: entry };
+            setLocal(STORAGE_KEYS.ANIME_DOWNLOADS, updated);
+            return updated;
+        });
+
+        try {
+            const { Anime } = await import("@/plugins/anime");
+            const result = await Anime.downloadEpisode({
+                episodeId: ep.id,
+                title: ep.title || `Episode ${ep.number}`,
+                animeTitle: anime.title
+            });
+            if (result.filePath) {
+                setDlMap(prev => {
+                    const updated = { ...prev };
+                    if (updated[ep.id]) updated[ep.id] = { ...updated[ep.id], filePath: result.filePath!, state: 'completed', progress: 100 };
+                    setLocal(STORAGE_KEYS.ANIME_DOWNLOADS, updated);
+                    return updated;
+                });
             }
+        } catch (e: any) {
+            console.error("Download failed:", e);
+            setDlMap(prev => {
+                const updated = { ...prev };
+                if (updated[ep.id]) updated[ep.id] = { ...updated[ep.id], state: 'error', progress: 0 };
+                setLocal(STORAGE_KEYS.ANIME_DOWNLOADS, updated);
+                return updated;
+            });
+        }
+    }, [anime, id, dlMap]);
+
+    useEffect(() => {
+        if (!id) return;
+
+        const cached = getCachedAnimeInfo(id);
+        if (cached) {
+            setAnime(cached);
             setLoading(false);
+            refreshAnimeInfo(id).then(fresh => {
+                if (fresh) setAnime(fresh);
+            }).catch(() => {});
+            return;
         }
-        if (id) {
-            load();
-        }
+
+        setLoading(true);
+        fetchAnimeInfo(id).then(data => {
+            if (data) setAnime(data);
+            else setError("Failed to resolve this Anime.");
+        }).catch((e: any) => {
+            setError(e.message || "Failed to load Anime details.");
+        }).finally(() => setLoading(false));
     }, [id]);
 
     if (loading) {
@@ -136,26 +235,67 @@ function AnimeDetailsInner() {
 
                     <div className="chapters-list">
                         {anime.episodes && anime.episodes.length > 0 ? (
-                            anime.episodes.map((ep) => (
-                                <Link
-                                    key={ep.id}
-                                    href={`/anime/watch?id=${encodeURIComponent(anime.id)}&ep=${encodeURIComponent(ep.id)}`}
-                                    className="chapter-item"
-                                    style={{ textDecoration: 'none' }}
-                                >
-                                    <div className="chapter-item-left">
-                                        <span className="chapter-number" style={{ width: 80, color: 'rgba(88, 101, 242, 1)' }}>
-                                            Ep {ep.number}
-                                        </span>
-                                        <span className="chapter-title" style={{ color: 'white' }}>
-                                            {ep.title || `Episode ${ep.number}`}
-                                        </span>
-                                    </div>
-                                    <div className="chapter-item-right">
-                                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"></circle><polygon points="10 8 16 12 10 16 10 8"></polygon></svg>
-                                    </div>
-                                </Link>
-                            ))
+                            anime.episodes.map((ep) => {
+                                const dl = dlMap[ep.id];
+                                const isCompleted = dl?.state === 'completed';
+                                const isActive = dl?.state === 'downloading' || dl?.state === 'extracting';
+                                const pct = dl?.progress || 0;
+
+                                return (
+                                    <Link
+                                        key={ep.id}
+                                        href={`/anime/watch?id=${encodeURIComponent(anime.id)}&ep=${encodeURIComponent(ep.id)}`}
+                                        className="chapter-item"
+                                        style={{ textDecoration: 'none' }}
+                                    >
+                                        <div className="chapter-item-left">
+                                            <span className="chapter-number" style={{ width: 80, color: isCompleted ? '#4CAF50' : 'rgba(88, 101, 242, 1)' }}>
+                                                Ep {ep.number}
+                                            </span>
+                                            <span className="chapter-title" style={{ color: 'white' }}>
+                                                {ep.title || `Episode ${ep.number}`}
+                                            </span>
+                                            {isCompleted && (
+                                                <span style={{ fontSize: 11, color: '#4CAF50', marginLeft: 8 }}>Offline</span>
+                                            )}
+                                        </div>
+                                        <div className="chapter-item-right" style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                                            {isNative && (() => {
+                                                if (isCompleted) {
+                                                    return (
+                                                        <button
+                                                            className="dl-btn dl-completed"
+                                                            title="Downloaded — tap to play offline"
+                                                            onClick={(e) => { e.preventDefault(); handleDownload(ep); }}
+                                                        >
+                                                            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#4CAF50" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" /><polyline points="22 4 12 14.01 9 11.01" /></svg>
+                                                        </button>
+                                                    );
+                                                }
+                                                if (isActive) {
+                                                    return (
+                                                        <button className="dl-btn dl-active" title={`Downloading ${pct}%`} onClick={(e) => e.preventDefault()}>
+                                                            <div className="dl-progress-circle" style={{ width: 28, height: 28, borderRadius: '50%', background: `conic-gradient(var(--sakura-pink) ${pct}%, rgba(255,255,255,0.1) 0)`, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                                                <div style={{ width: 18, height: 18, borderRadius: '50%', background: 'var(--bg-primary, #1a1a2e)' }} />
+                                                            </div>
+                                                        </button>
+                                                    );
+                                                }
+                                                return (
+                                                    <button
+                                                        className="dl-btn"
+                                                        title="Download"
+                                                        onClick={(e) => { e.preventDefault(); handleDownload(ep); }}
+                                                    >
+                                                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="var(--sakura-pink)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline points="7 10 12 15 17 10" /><line x1="12" x2="12" y1="15" y2="3" /></svg>
+                                                    </button>
+                                                );
+                                            })()}
+                                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"></circle><polygon points="10 8 16 12 10 16 10 8"></polygon></svg>
+                                        </div>
+                                    </Link>
+                                );
+                            })
                         ) : (
                             <div style={{ textAlign: "center", padding: 40, color: "var(--text-muted)" }}>
                                 No episodes found.

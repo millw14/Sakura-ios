@@ -11,6 +11,7 @@ export const metadata: Metadata = {
 
 import MobileNavHandler from "@/components/MobileNavHandler";
 import BottomNav from "@/components/BottomNav";
+import FloatingTradeWidget from "@/components/FloatingTradeWidget";
 
 export default function RootLayout({
   children,
@@ -51,6 +52,7 @@ export default function RootLayout({
         <SolanaProvider>
           <MobileNavHandler />
           {children}
+          <FloatingTradeWidget />
           <BottomNav />
         </SolanaProvider>
       </body>

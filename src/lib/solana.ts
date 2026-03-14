@@ -2,7 +2,7 @@ import { Connection, PublicKey } from "@solana/web3.js";
 
 // ============ Network Config ============
 export const SOLANA_NETWORK = "mainnet-beta";
-export const RPC_ENDPOINT = "https://methodical-damp-scion.solana-mainnet.quiknode.pro/472e366da66699252c8bc1e4cae44f8ea9dc4265/";
+export const RPC_ENDPOINT = "https://api.mainnet-beta.solana.com";
 
 // ============ $SAKURA Token Config ============
 // $SAKURA SPL token mint address
@@ -30,6 +30,10 @@ export const PERCOLATOR_INSURANCE_VAULT = new PublicKey(
 
 export const INSURANCE_SPLIT = 50;
 export const BURN_SPLIT = 50;
+
+// ============ Jupiter API Config ============
+// Free key from https://portal.jup.ag — required for swap functionality
+export const JUPITER_API_KEY = "36bac653-fbd8-481d-aa0d-2c91530f8ae3";
 
 
 // ============ Connection ============

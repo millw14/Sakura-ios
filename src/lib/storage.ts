@@ -14,6 +14,9 @@ export const STORAGE_KEYS = {
     WALLET_ADDRESS: 'sakura_wallet_address',
     CONNECTED_WALLET_NAME: 'sakura_connected_wallet_name',
     DOWNLOADS: 'sakura_downloads',
+    ANIME_DOWNLOADS: 'sakura_anime_downloads',
+    ANIME_WATCH_PROGRESS: 'sakura_anime_watch_progress',
+    ANIME_HISTORY: 'sakura_anime_history',
     PASS_RECEIPTS: 'sakura_pass_receipts',
 };
 
@@ -127,4 +130,29 @@ export function getChapterProgress(mangaId: string, chapterId: string): number {
 export function getAllChapterProgress(mangaId: string): Record<string, number> {
     const all = getLocal<Record<string, Record<string, number>>>(STORAGE_KEYS.CHAPTER_PROGRESS, {});
     return all[mangaId] || {};
+}
+
+/* ── Anime Watch History ── */
+
+export interface AnimeHistoryEntry {
+    animeId: string;
+    episodeId: string;
+    animeTitle: string;
+    episodeTitle: string;
+    episodeNumber: number;
+    image?: string;
+    timestamp: number;
+}
+
+const MAX_ANIME_HISTORY = 20;
+
+export function saveAnimeWatchEntry(entry: AnimeHistoryEntry): void {
+    const all = getLocal<AnimeHistoryEntry[]>(STORAGE_KEYS.ANIME_HISTORY, []);
+    const filtered = all.filter(e => e.animeId !== entry.animeId);
+    const updated = [entry, ...filtered].slice(0, MAX_ANIME_HISTORY);
+    setLocal(STORAGE_KEYS.ANIME_HISTORY, updated);
+}
+
+export function getAnimeHistory(): AnimeHistoryEntry[] {
+    return getLocal<AnimeHistoryEntry[]>(STORAGE_KEYS.ANIME_HISTORY, []);
 }

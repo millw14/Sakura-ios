@@ -20,16 +20,26 @@ export interface JikanAnime {
     genres: { name: string }[];
 }
 
+const memCache = new Map<string, { data: any; exp: number }>();
+
 async function requestJikan(url: string) {
+    const now = Date.now();
+    const hit = memCache.get(url);
+    if (hit && now < hit.exp) return hit.data;
+
+    let data: any;
     if (Capacitor.isNativePlatform()) {
         const response = await CapacitorHttp.get({ url });
         if (response.status >= 400) throw new Error(`HTTP Error: ${response.status}`);
-        return response.data;
+        data = response.data;
     } else {
         const res = await fetch(url);
         if (!res.ok) throw new Error(`HTTP Error: ${res.status}`);
-        return res.json();
+        data = await res.json();
     }
+
+    memCache.set(url, { data, exp: now + 10 * 60 * 1000 });
+    return data;
 }
 
 export async function fetchJikanSearch(query: string): Promise<JikanAnime[]> {

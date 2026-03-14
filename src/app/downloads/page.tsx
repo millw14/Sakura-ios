@@ -3,10 +3,31 @@
 import Header from "@/components/Header";
 import Link from "next/link";
 import { useDownloads, downloadManager } from "@/lib/downloads";
-import { useMemo } from "react";
+import { useMemo, useState, useEffect } from "react";
+import { getLocal, setLocal, STORAGE_KEYS } from "@/lib/storage";
+
+interface AnimeDownloadEntry {
+    episodeId: string;
+    animeId: string;
+    animeTitle: string;
+    episodeTitle: string;
+    episodeNumber: number;
+    state: string;
+    progress: number;
+    timestamp: number;
+}
+
+function useAnimeDownloads() {
+    const [data, setData] = useState<Record<string, AnimeDownloadEntry>>({});
+    useEffect(() => {
+        setData(getLocal<Record<string, AnimeDownloadEntry>>(STORAGE_KEYS.ANIME_DOWNLOADS, {}));
+    }, []);
+    return data;
+}
 
 export default function DownloadsPage() {
     const downloads = useDownloads();
+    const animeDownloads = useAnimeDownloads();
 
     // Group downloads by Manga
     const groupedDownloads = useMemo(() => {
@@ -17,6 +38,28 @@ export default function DownloadsPage() {
         });
         return groups;
     }, [downloads]);
+
+    const groupedAnime = useMemo(() => {
+        const groups: Record<string, AnimeDownloadEntry[]> = {};
+        Object.values(animeDownloads).forEach(entry => {
+            if (!groups[entry.animeId]) groups[entry.animeId] = [];
+            groups[entry.animeId].push(entry);
+        });
+        for (const key of Object.keys(groups)) {
+            groups[key].sort((a, b) => a.episodeNumber - b.episodeNumber);
+        }
+        return groups;
+    }, [animeDownloads]);
+
+    const deleteAnimeDownload = (episodeId: string) => {
+        if (!confirm("Remove this entry? (The video in your gallery is not affected.)")) return;
+        const all = getLocal<Record<string, AnimeDownloadEntry>>(STORAGE_KEYS.ANIME_DOWNLOADS, {});
+        delete all[episodeId];
+        setLocal(STORAGE_KEYS.ANIME_DOWNLOADS, all);
+        window.location.reload();
+    };
+
+    const hasAny = Object.keys(groupedDownloads).length > 0 || Object.keys(groupedAnime).length > 0;
 
     const handlePauseAll = () => downloadManager.pauseAll();
 
@@ -47,17 +90,66 @@ export default function DownloadsPage() {
                     </div>
                 </div>
 
-                {Object.keys(groupedDownloads).length === 0 ? (
+                {!hasAny ? (
                     <div style={{ textAlign: 'center', padding: '60px 20px', background: 'rgba(255,255,255,0.02)', borderRadius: '16px' }}>
                         <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="var(--sakura-pink)" strokeWidth="1" style={{ opacity: 0.5, marginBottom: 12 }}>
                             <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline points="7 10 12 15 17 10" /><line x1="12" x2="12" y1="15" y2="3" />
                         </svg>
                         <h3 style={{ marginBottom: 8 }}>No Downloads Yet</h3>
-                        <p style={{ color: 'var(--text-muted)' }}>Chapters you download for offline reading will appear here.</p>
-                        <Link href="/manga" className="btn-primary" style={{ display: 'inline-block', marginTop: 16 }}>Browse Manga</Link>
+                        <p style={{ color: 'var(--text-muted)' }}>Manga chapters and anime episodes you download will appear here.</p>
+                        <div style={{ display: 'flex', gap: 12, justifyContent: 'center', marginTop: 16 }}>
+                            <Link href="/manga" className="btn-primary">Browse Manga</Link>
+                            <Link href="/anime" className="btn-primary" style={{ background: 'rgba(255,105,180,0.15)', border: '1px solid var(--sakura-pink)' }}>Browse Anime</Link>
+                        </div>
                     </div>
                 ) : (
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+                        {/* Anime Downloads */}
+                        {Object.entries(groupedAnime).map(([animeId, episodes]) => {
+                            const firstEp = episodes[0];
+                            return (
+                                <div key={animeId} style={{ background: 'rgba(255,255,255,0.03)', borderRadius: '16px', overflow: 'hidden' }}>
+                                    <div style={{ padding: '16px', display: 'flex', gap: '16px', borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
+                                        <div style={{ width: 60, height: 85, borderRadius: '8px', background: 'linear-gradient(135deg, rgba(255,105,180,0.3), rgba(88,101,242,0.3))', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '24px', flexShrink: 0 }}>
+                                            🎬
+                                        </div>
+                                        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
+                                            <h3 style={{ fontSize: '18px', margin: 0, color: 'var(--text-primary)' }}>{firstEp.animeTitle}</h3>
+                                            <span style={{ color: 'var(--sakura-pink)', fontSize: '13px' }}>{episodes.length} Episode{episodes.length > 1 ? 's' : ''} — Gallery/Sakura</span>
+                                        </div>
+                                    </div>
+                                    <div style={{ display: 'flex', flexDirection: 'column' }}>
+                                        {episodes.map(ep => (
+                                            <div key={ep.episodeId} style={{ display: 'flex', alignItems: 'center', padding: '16px', borderBottom: '1px solid rgba(255,255,255,0.02)' }}>
+                                                <div style={{ flex: 1 }}>
+                                                    <span style={{ display: 'block', fontWeight: 600, fontSize: '15px' }}>{ep.episodeTitle}</span>
+                                                    <div style={{ marginTop: '4px' }}>
+                                                        {ep.state === 'completed' && <span style={{ color: '#4CAF50', fontSize: '12px' }}>✓ Saved to Gallery</span>}
+                                                        {ep.state === 'downloading' && <span style={{ color: 'var(--sakura-pink)', fontSize: '12px' }}>Downloading {ep.progress}%</span>}
+                                                        {ep.state === 'extracting' && <span style={{ color: 'var(--sakura-pink)', fontSize: '12px' }}>Extracting stream...</span>}
+                                                        {ep.state === 'error' && <span style={{ color: '#ff6b6b', fontSize: '12px' }}>Download failed</span>}
+                                                    </div>
+                                                    {ep.state !== 'completed' && ep.state !== 'error' && (
+                                                        <div style={{ height: '4px', background: 'rgba(0,0,0,0.3)', borderRadius: '2px', marginTop: '8px', overflow: 'hidden' }}>
+                                                            <div style={{ height: '100%', width: `${ep.progress}%`, background: 'var(--sakura-pink)', transition: 'width 0.3s' }} />
+                                                        </div>
+                                                    )}
+                                                </div>
+                                                <button
+                                                    onClick={() => deleteAnimeDownload(ep.episodeId)}
+                                                    style={{ width: 36, height: 36, borderRadius: '18px', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(255,105,180,0.05)', color: '#ff6b6b', border: 'none', cursor: 'pointer', marginLeft: '16px' }}
+                                                    title="Remove entry"
+                                                >
+                                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+                                                </button>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+                            );
+                        })}
+
+                        {/* Manga Downloads */}
                         {Object.entries(groupedDownloads).map(([mangaId, tasks]) => {
                             const firstTask = tasks[0];
                             return (

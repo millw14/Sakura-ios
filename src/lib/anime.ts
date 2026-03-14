@@ -3,7 +3,7 @@ import { searchHiAnime, getHiAnimeEpisodes, getHiAnimeServers, getHiAnimeSources
 import { extractMegaCloudSources } from "./sources/megacloud";
 
 export interface AnimeResult {
-    id: string; // Will store Jikan ID
+    id: string;
     title: string;
     image?: string;
     type?: string;
@@ -17,7 +17,7 @@ export interface AnimeInfo extends AnimeResult {
     status?: string;
     genres?: string[];
     episodes: {
-        id: string; // HiAnime Episode ID
+        id: string;
         number: number;
         title: string;
         image?: string;
@@ -32,12 +32,43 @@ export interface StreamingSource {
     outro?: { start: number; end: number };
 }
 
-/**
- * Searches for an anime series using Jikan API (MAL).
- */
+/* ─── Cache Helpers ─── */
+
+const CACHE_PREFIX = "sakura_anime_cache_";
+const TTL_SEARCH = 30 * 60 * 1000;       // 30 min
+const TTL_TRENDING = 2 * 60 * 60 * 1000; // 2 hours
+const TTL_INFO = 24 * 60 * 60 * 1000;    // 24 hours
+const TTL_EPISODES = 6 * 60 * 60 * 1000; // 6 hours
+const TTL_HI_MAP = 7 * 24 * 60 * 60 * 1000; // 7 days (MAL→HiAnime ID mapping rarely changes)
+
+function cacheGet<T>(key: string): T | null {
+    if (typeof window === 'undefined') return null;
+    try {
+        const raw = localStorage.getItem(CACHE_PREFIX + key);
+        if (!raw) return null;
+        const { data, exp } = JSON.parse(raw);
+        if (Date.now() > exp) {
+            localStorage.removeItem(CACHE_PREFIX + key);
+            return null;
+        }
+        return data as T;
+    } catch { return null; }
+}
+
+function cacheSet<T>(key: string, data: T, ttl: number): void {
+    if (typeof window === 'undefined') return;
+    try {
+        localStorage.setItem(CACHE_PREFIX + key, JSON.stringify({ data, exp: Date.now() + ttl }));
+    } catch { /* quota exceeded — ignore */ }
+}
+
 export async function searchAnime(query: string): Promise<AnimeResult[]> {
+    const cacheKey = `search_${query.toLowerCase().trim()}`;
+    const cached = cacheGet<AnimeResult[]>(cacheKey);
+    if (cached) return cached;
+
     const results = await fetchJikanSearch(query);
-    return results.map(r => ({
+    const mapped = results.map(r => ({
         id: String(r.mal_id),
         title: r.title_english || r.title,
         image: r.images?.webp?.large_image_url || r.images?.webp?.image_url,
@@ -45,59 +76,72 @@ export async function searchAnime(query: string): Promise<AnimeResult[]> {
         releaseDate: r.year ? String(r.year) : undefined,
         score: r.score
     }));
+    cacheSet(cacheKey, mapped, TTL_SEARCH);
+    return mapped;
 }
 
-/**
- * Fetches currently airing/trending anime using Jikan API.
- */
 export async function fetchAiringAnime(): Promise<AnimeResult[]> {
+    const cacheKey = "trending";
+    const cached = cacheGet<AnimeResult[]>(cacheKey);
+    if (cached) return cached;
+
     const results = await fetchJikanTrending();
-    return results.map(r => ({
+    const mapped = results.map(r => ({
         id: String(r.mal_id),
         title: r.title_english || r.title,
         image: r.images?.webp?.large_image_url || r.images?.webp?.image_url,
         type: 'Trending',
         score: r.score
     }));
+    cacheSet(cacheKey, mapped, TTL_TRENDING);
+    return mapped;
 }
 
-/**
- * Gets metadata from Jikan, then maps it to HiAnime to fetch episodes.
- */
 export async function fetchAnimeInfo(id: string): Promise<AnimeInfo | null> {
+    const cacheKey = `info_${id}`;
+    const cached = cacheGet<AnimeInfo>(cacheKey);
+    if (cached) return cached;
+
     const jikanData = await fetchJikanInfo(id);
     if (!jikanData) return null;
 
     const romajiTitle = jikanData.title;
     const engTitle = jikanData.title_english;
 
-    // 1. Search HiAnime using Romaji Title first
-    let hiSearch = await searchHiAnime(romajiTitle);
+    // Check cached MAL→HiAnime ID mapping first
+    const mapKey = `himap_${id}`;
+    let hiAnimeId = cacheGet<string>(mapKey) || '';
 
-    // Fallback to English title if Romaji yields nothing
-    if ((!hiSearch || hiSearch.length === 0) && engTitle) {
-        hiSearch = await searchHiAnime(engTitle);
-    }
+    if (!hiAnimeId) {
+        let hiSearch = await searchHiAnime(romajiTitle);
+        if ((!hiSearch || hiSearch.length === 0) && engTitle) {
+            hiSearch = await searchHiAnime(engTitle);
+        }
 
-    let hiAnimeId = '';
-
-    if (hiSearch && hiSearch.length > 0) {
-        // Try to find exact match
-        const findMatch = [...hiSearch].find((p: any) =>
-            p.title.toLowerCase() === romajiTitle.toLowerCase() ||
-            (engTitle && p.title.toLowerCase() === engTitle.toLowerCase())
-        );
-        hiAnimeId = findMatch ? findMatch.id : hiSearch[0].id;
+        if (hiSearch && hiSearch.length > 0) {
+            const findMatch = [...hiSearch].find((p: any) =>
+                p.title.toLowerCase() === romajiTitle.toLowerCase() ||
+                (engTitle && p.title.toLowerCase() === engTitle.toLowerCase())
+            );
+            hiAnimeId = findMatch ? findMatch.id : hiSearch[0].id;
+            cacheSet(mapKey, hiAnimeId, TTL_HI_MAP);
+        }
     }
 
     let episodes: AnimeInfo['episodes'] = [];
 
-    // 2. Fetch episodes from HiAnime using the mapped ID
     if (hiAnimeId) {
-        episodes = await getHiAnimeEpisodes(hiAnimeId);
+        const epKey = `episodes_${hiAnimeId}`;
+        const cachedEps = cacheGet<AnimeInfo['episodes']>(epKey);
+        if (cachedEps) {
+            episodes = cachedEps;
+        } else {
+            episodes = await getHiAnimeEpisodes(hiAnimeId);
+            if (episodes.length > 0) cacheSet(epKey, episodes, TTL_EPISODES);
+        }
     }
 
-    return {
+    const info: AnimeInfo = {
         id: String(jikanData.mal_id),
         title: jikanData.title_english || jikanData.title,
         image: jikanData.images?.webp?.large_image_url || jikanData.images?.webp?.image_url,
@@ -108,6 +152,59 @@ export async function fetchAnimeInfo(id: string): Promise<AnimeInfo | null> {
         score: jikanData.score,
         episodes
     };
+    cacheSet(cacheKey, info, TTL_INFO);
+    return info;
+}
+
+/** Returns cached anime info instantly (no network calls). */
+export function getCachedAnimeInfo(id: string): AnimeInfo | null {
+    return cacheGet<AnimeInfo>(`info_${id}`);
+}
+
+/** Fetches fresh anime info, bypassing cache. Updates cache on success. */
+export async function refreshAnimeInfo(id: string): Promise<AnimeInfo | null> {
+    const jikanData = await fetchJikanInfo(id);
+    if (!jikanData) return null;
+
+    const romajiTitle = jikanData.title;
+    const engTitle = jikanData.title_english;
+
+    let hiAnimeId = cacheGet<string>(`himap_${id}`) || '';
+
+    if (!hiAnimeId) {
+        let hiSearch = await searchHiAnime(romajiTitle);
+        if ((!hiSearch || hiSearch.length === 0) && engTitle) {
+            hiSearch = await searchHiAnime(engTitle);
+        }
+        if (hiSearch && hiSearch.length > 0) {
+            const findMatch = [...hiSearch].find((p: any) =>
+                p.title.toLowerCase() === romajiTitle.toLowerCase() ||
+                (engTitle && p.title.toLowerCase() === engTitle.toLowerCase())
+            );
+            hiAnimeId = findMatch ? findMatch.id : hiSearch[0].id;
+            cacheSet(`himap_${id}`, hiAnimeId, TTL_HI_MAP);
+        }
+    }
+
+    let episodes: AnimeInfo['episodes'] = [];
+    if (hiAnimeId) {
+        episodes = await getHiAnimeEpisodes(hiAnimeId);
+        if (episodes.length > 0) cacheSet(`episodes_${hiAnimeId}`, episodes, TTL_EPISODES);
+    }
+
+    const info: AnimeInfo = {
+        id: String(jikanData.mal_id),
+        title: jikanData.title_english || jikanData.title,
+        image: jikanData.images?.webp?.large_image_url || jikanData.images?.webp?.image_url,
+        cover: jikanData.images?.webp?.large_image_url || jikanData.images?.webp?.image_url,
+        description: jikanData.synopsis,
+        status: jikanData.status,
+        genres: jikanData.genres?.map(g => g.name) || [],
+        score: jikanData.score,
+        episodes
+    };
+    cacheSet(`info_${id}`, info, TTL_INFO);
+    return info;
 }
 
 /**

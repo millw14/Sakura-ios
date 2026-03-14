@@ -1,9 +1,7 @@
-import { Connection, PublicKey, VersionedTransaction } from "@solana/web3.js";
-import { SAKURA_MINT, getConnection, SOLANA_NETWORK } from "./solana";
-import { CapacitorHttp } from "@capacitor/core";
+import { PublicKey, VersionedTransaction } from "@solana/web3.js";
+import { SAKURA_MINT, getConnection, SOLANA_NETWORK, JUPITER_API_KEY } from "./solana";
 
-const JUPITER_QUOTE_API = "https://quote-api.jup.ag/v6/quote";
-const JUPITER_SWAP_API = "https://quote-api.jup.ag/v6/swap";
+const JUPITER_BASE = "https://api.jup.ag/swap/v1";
 const WSOL_MINT = "So11111111111111111111111111111111111111112";
 
 export interface SwapQuote {
@@ -11,7 +9,6 @@ export interface SwapQuote {
     outAmount: string;
     priceImpactPct: string;
     routePlan: any[];
-    // Raw quote response to pass to swap API
     _raw: any;
 }
 
@@ -21,55 +18,52 @@ export interface SwapResult {
     error?: string;
 }
 
-/**
- * Gets a quote from Jupiter to swap SOL -> $SAKURA
- * @param amountSol The amount of SOL to swap
- * @returns Quote data or null if failed
- */
+function jupiterHeaders(): Record<string, string> {
+    const h: Record<string, string> = { "Content-Type": "application/json" };
+    if (JUPITER_API_KEY) h["x-api-key"] = JUPITER_API_KEY;
+    return h;
+}
+
 export async function getSakuraSwapQuote(amountSol: number): Promise<SwapQuote | null> {
     if ((SOLANA_NETWORK as string) !== "mainnet-beta") {
-        console.warn("Jupiter Swap is only available on mainnet-beta.");
-        // We throw here so the UI can gracefully disable the feature
         throw new Error("Jupiter Swap requires Mainnet.");
+    }
+
+    if (!JUPITER_API_KEY) {
+        throw new Error("Jupiter API key not configured. Get a free key at portal.jup.ag and add it in Settings.");
     }
 
     try {
         const lamports = Math.round(amountSol * 1e9);
-        const url = `${JUPITER_QUOTE_API}?inputMint=${WSOL_MINT}&outputMint=${SAKURA_MINT.toBase58()}&amount=${lamports}&slippageBps=50`;
+        const url = `${JUPITER_BASE}/quote?inputMint=${WSOL_MINT}&outputMint=${SAKURA_MINT.toBase58()}&amount=${lamports}&slippageBps=50&restrictIntermediateTokens=true`;
 
-        const response = await CapacitorHttp.get({ url });
+        const response = await fetch(url, { headers: jupiterHeaders() });
 
-        if (response.status !== 200) {
+        if (!response.ok) {
             let errorText = "Failed to fetch quote from Jupiter.";
             try {
-                errorText = response.data.error || errorText;
+                const errBody = await response.json();
+                errorText = errBody.message || errBody.error || errorText;
             } catch {
                 errorText = `Jupiter API returned HTTP ${response.status}`;
             }
             throw new Error(errorText);
         }
 
-        // CapacitorHttp directly parses JSON into .data
-        const data = response.data;
+        const data = await response.json();
         return {
             inAmount: data.inAmount,
             outAmount: data.outAmount,
-            priceImpactPct: data.priceImpactPct,
-            routePlan: data.routePlan,
-            _raw: data // Keep raw data for the execution POST request
+            priceImpactPct: data.priceImpactPct || "0",
+            routePlan: data.routePlan || [],
+            _raw: data
         };
     } catch (e: any) {
         console.error("Jupiter Quote Error:", e);
-        if (e.message && e.message.includes("Failed to fetch")) {
-            throw new Error("Network error: Could not reach Jupiter API. If on Android emulator, check connections or VPN.");
-        }
         throw e;
     }
 }
 
-/**
- * Executes the swap using the selected quote.
- */
 export async function executeSakuraSwap(
     quote: SwapQuote,
     walletPublicKey: PublicKey,
@@ -82,43 +76,46 @@ export async function executeSakuraSwap(
     try {
         const connection = getConnection();
 
-        // 1. Get serialized transaction from Jupiter API
-        const swapResponse = await CapacitorHttp.post({
-            url: JUPITER_SWAP_API,
-            headers: {
-                'Content-Type': 'application/json'
-            },
-            data: {
+        const swapResponse = await fetch(`${JUPITER_BASE}/swap`, {
+            method: "POST",
+            headers: jupiterHeaders(),
+            body: JSON.stringify({
                 quoteResponse: quote._raw,
                 userPublicKey: walletPublicKey.toBase58(),
                 wrapAndUnwrapSol: true,
-            }
+                dynamicComputeUnitLimit: true,
+                dynamicSlippage: true,
+                prioritizationFeeLamports: {
+                    priorityLevelWithMaxLamports: {
+                        maxLamports: 1000000,
+                        priorityLevel: "veryHigh"
+                    }
+                }
+            })
         });
 
-        if (swapResponse.status !== 200) {
+        if (!swapResponse.ok) {
             let errorText = "Failed to get swap transaction";
             try {
-                errorText = swapResponse.data.error || errorText;
+                const errBody = await swapResponse.json();
+                errorText = errBody.message || errBody.error || errorText;
             } catch {
                 errorText = `Jupiter Swap API returned HTTP ${swapResponse.status}`;
             }
             throw new Error(errorText);
         }
 
-        const { swapTransaction } = swapResponse.data;
+        const swapData = await swapResponse.json();
+        const { swapTransaction } = swapData;
 
-        // 2. Deserialize the Base64 transaction into a VersionedTransaction
         const swapTransactionBuf = Buffer.from(swapTransaction, 'base64');
         const transaction = VersionedTransaction.deserialize(swapTransactionBuf);
 
-        // 3. Sign the transaction
         const signedTransaction = await signTransaction(transaction);
 
-        // 4. Send and confirm
         const latestBlockHash = await connection.getLatestBlockhash();
 
-        // Execute the transaction
-        const rawTransaction = signedTransaction.serialize()
+        const rawTransaction = signedTransaction.serialize();
         const txid = await connection.sendRawTransaction(rawTransaction, {
             skipPreflight: true,
             maxRetries: 2
