@@ -17,6 +17,10 @@ const config: CapacitorConfig = {
   },
   android: {
     allowMixedContent: true
+  },
+  ios: {
+    scheme: 'https',
+    allowsLinkPreview: false
   }
 };
 
