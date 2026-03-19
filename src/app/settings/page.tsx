@@ -8,6 +8,7 @@ import { useSakuraWalletModal } from "@/components/SakuraWalletModal";
 import { truncateAddress } from "@/lib/solana";
 import { getProfile, upsertProfile } from "@/lib/comments";
 import { checkPassStatus } from "@/lib/pass-check";
+import { searchCreators, type CreatorProfile } from "@/lib/creator";
 import Link from "next/link";
 
 type ReadingMode = 'scroll' | 'page';
@@ -30,6 +31,11 @@ export default function SettingsPage() {
     const [hasPass, setHasPass] = useState(false);
     const [profileSaved, setProfileSaved] = useState(false);
     const [profileLoading, setProfileLoading] = useState(false);
+
+    // Creator search state
+    const [creatorQuery, setCreatorQuery] = useState("");
+    const [creatorResults, setCreatorResults] = useState<CreatorProfile[]>([]);
+    const [creatorSearching, setCreatorSearching] = useState(false);
 
     useEffect(() => {
         const settings = getLocal<any>(STORAGE_KEYS.SETTINGS, { dataSaver: false });
@@ -73,6 +79,23 @@ export default function SettingsPage() {
             }
         }
         setCacheSize(total.toFixed(2) + " MB");
+    };
+
+    const handleCreatorSearch = async (query: string) => {
+        setCreatorQuery(query);
+        if (!query.trim()) {
+            setCreatorResults([]);
+            return;
+        }
+        setCreatorSearching(true);
+        try {
+            const results = await searchCreators(query);
+            setCreatorResults(results);
+        } catch {
+            setCreatorResults([]);
+        } finally {
+            setCreatorSearching(false);
+        }
     };
 
     const updateSetting = (key: string, val: any) => {
@@ -233,6 +256,88 @@ export default function SettingsPage() {
                             >
                                 View History
                             </Link>
+                        </div>
+                    </div>
+
+                    {/* Creator Search */}
+                    <div className="settings-group">
+                        <h3 className="settings-group-title">クリエイター Creators</h3>
+                        <div className="setting-item" style={{ flexDirection: "column", alignItems: "stretch", gap: 12 }}>
+                            <div className="setting-info">
+                                <span className="setting-name">Search Creators</span>
+                                <span className="setting-desc">Find verified creators by name.</span>
+                            </div>
+                            <div style={{ position: "relative" }}>
+                                <input
+                                    type="text"
+                                    value={creatorQuery}
+                                    onChange={(e) => handleCreatorSearch(e.target.value)}
+                                    placeholder="Search by name..."
+                                    style={{
+                                        width: "100%",
+                                        padding: "10px 14px",
+                                        borderRadius: 10,
+                                        border: "1px solid rgba(255,255,255,0.1)",
+                                        background: "rgba(0,0,0,0.2)",
+                                        color: "#fff",
+                                        fontSize: "0.9rem",
+                                    }}
+                                />
+                            </div>
+                            {creatorSearching && (
+                                <p style={{ color: "var(--text-muted)", fontSize: "0.85rem" }}>Searching...</p>
+                            )}
+                            {!creatorSearching && creatorQuery.trim() && creatorResults.length === 0 && (
+                                <p style={{ color: "var(--text-muted)", fontSize: "0.85rem" }}>No creators found.</p>
+                            )}
+                            {creatorResults.length > 0 && (
+                                <div style={{
+                                    display: "flex",
+                                    flexDirection: "column",
+                                    gap: 2,
+                                    background: "rgba(0,0,0,0.15)",
+                                    borderRadius: 12,
+                                    overflow: "hidden",
+                                    border: "1px solid rgba(255,255,255,0.05)",
+                                }}>
+                                    {creatorResults.map((c) => (
+                                        <Link
+                                            key={c.wallet_address}
+                                            href={`/creator?id=${c.wallet_address}`}
+                                            style={{
+                                                display: "flex",
+                                                alignItems: "center",
+                                                gap: 10,
+                                                padding: "10px 14px",
+                                                textDecoration: "none",
+                                                color: "#fff",
+                                                transition: "background 0.15s",
+                                            }}
+                                            onMouseEnter={(e) => (e.currentTarget.style.background = "rgba(255,183,197,0.08)")}
+                                            onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
+                                        >
+                                            {/* eslint-disable-next-line @next/next/no-img-element */}
+                                            <img
+                                                src={c.avatar_url || `https://robohash.org/${c.wallet_address}?set=set4&bgset=bg1`}
+                                                alt=""
+                                                style={{ width: 32, height: 32, borderRadius: "50%", objectFit: "cover", border: "1px solid rgba(255,183,197,0.3)" }}
+                                            />
+                                            <div style={{ flex: 1, minWidth: 0 }}>
+                                                <div style={{ fontSize: "0.9rem", fontWeight: 600, display: "flex", alignItems: "center", gap: 6 }}>
+                                                    {c.display_name}
+                                                    {c.is_verified && (
+                                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="var(--sakura-pink)" stroke="var(--sakura-pink)" strokeWidth="2"><polyline points="20 6 9 17 4 12" /></svg>
+                                                    )}
+                                                </div>
+                                                <div style={{ fontSize: "0.75rem", color: "var(--text-muted)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                                                    {c.wallet_address.slice(0, 4)}...{c.wallet_address.slice(-4)}
+                                                </div>
+                                            </div>
+                                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--text-muted)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 18 15 12 9 6" /></svg>
+                                        </Link>
+                                    ))}
+                                </div>
+                            )}
                         </div>
                     </div>
 

@@ -5,6 +5,7 @@ import Header from "@/components/Header";
 import AnimeCard from "@/components/AnimeCard";
 import { searchAnime, fetchAiringAnime, type AnimeResult } from "@/lib/anime";
 import { getLocal, setLocal, STORAGE_KEYS, getAnimeHistory, type AnimeHistoryEntry } from "@/lib/storage";
+import { PSYOP_SEARCH_RESULT, matchesPsyopQuery } from "@/lib/psyopAnime";
 import Link from "next/link";
 
 // Debounce hook
@@ -120,6 +121,100 @@ export default function AnimeBrowsePage() {
                             }
                         </p>
                     </div>
+
+                    {/* PsyopAnime Featured Banner — blurred / disabled */}
+                    {!isSearching && (
+                        <div style={{ marginBottom: 24, filter: 'blur(8px)', opacity: 0.25, pointerEvents: 'none', userSelect: 'none' }}>
+                            <div style={{
+                                position: 'relative',
+                                borderRadius: 20,
+                                overflow: 'hidden',
+                                height: 200,
+                                background: '#0a0a1a',
+                                border: '1px solid rgba(233,30,123,0.2)',
+                                boxShadow: '0 0 40px rgba(233,30,123,0.15), 0 8px 32px rgba(0,0,0,0.4)',
+                            }}>
+                                {/* eslint-disable-next-line @next/next/no-img-element */}
+                                <img
+                                    src="/psyopanime.png"
+                                    alt="PsyopAnime"
+                                    style={{
+                                        width: '100%',
+                                        height: '100%',
+                                        objectFit: 'cover',
+                                        opacity: 0.45,
+                                        filter: 'saturate(1.2)',
+                                    }}
+                                />
+                                <div style={{
+                                    position: 'absolute',
+                                    inset: 0,
+                                    background: 'linear-gradient(160deg, rgba(147,51,234,0.5) 0%, rgba(233,30,123,0.3) 30%, rgba(10,10,26,0.92) 70%)',
+                                    display: 'flex',
+                                    flexDirection: 'column',
+                                    justifyContent: 'flex-end',
+                                    padding: '24px 24px',
+                                }}>
+                                    <div style={{
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        gap: 8,
+                                        marginBottom: 10,
+                                    }}>
+                                        <span style={{
+                                            display: 'inline-block',
+                                            background: 'linear-gradient(135deg, #E91E7B, #9333ea)',
+                                            color: '#fff',
+                                            fontSize: 9,
+                                            fontWeight: 800,
+                                            padding: '4px 12px',
+                                            borderRadius: 20,
+                                            letterSpacing: 1.5,
+                                            textTransform: 'uppercase',
+                                        }}>
+                                            PsyopAnime × Sakura
+                                        </span>
+                                        <span style={{
+                                            display: 'inline-flex',
+                                            alignItems: 'center',
+                                            gap: 4,
+                                            color: 'rgba(255,255,255,0.5)',
+                                            fontSize: 10,
+                                            fontWeight: 600,
+                                        }}>
+                                            <span style={{
+                                                width: 6, height: 6, borderRadius: '50%',
+                                                background: '#4ade80',
+                                                display: 'inline-block',
+                                                boxShadow: '0 0 6px #4ade80',
+                                            }} />
+                                            Now streaming
+                                        </span>
+                                    </div>
+                                    <h3 style={{
+                                        margin: 0,
+                                        color: '#fff',
+                                        fontSize: 24,
+                                        fontWeight: 900,
+                                        lineHeight: 1.15,
+                                        letterSpacing: -0.5,
+                                        textShadow: '0 2px 20px rgba(233,30,123,0.4)',
+                                    }}>
+                                        PsyopAnime: The Series
+                                    </h3>
+                                    <p style={{
+                                        margin: '6px 0 0',
+                                        color: 'rgba(255,255,255,0.5)',
+                                        fontSize: 12,
+                                        fontWeight: 500,
+                                        letterSpacing: 0.3,
+                                    }}>
+                                        Sci-Fi Action · Psychological Thriller · Satire
+                                    </p>
+                                </div>
+                            </div>
+                        </div>
+                    )}
 
                     {/* Search */}
                     <div className="search-bar-wrapper" ref={searchRef}>

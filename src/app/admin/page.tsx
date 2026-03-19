@@ -1,11 +1,13 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { useWallet } from "@solana/wallet-adapter-react";
 import { getPendingCreators, verifyCreator, type CreatorProfile } from "@/lib/creator";
 import { useSakuraWalletModal } from "@/components/SakuraWalletModal";
 import Link from "next/link";
 import { getAuthorDetails } from "@/lib/mangadex";
+import { getTreasuryBalance } from "@/lib/treasury";
+import { SAKURA_TREASURY_ADMIN } from "@/lib/solana";
 
 export default function AdminPage() {
     const { publicKey, connected } = useWallet();
@@ -13,6 +15,7 @@ export default function AdminPage() {
     const [pendingCreators, setPendingCreators] = useState<(CreatorProfile & { authorName?: string })[]>([]);
     const [loading, setLoading] = useState(true);
     const [actionLoading, setActionLoading] = useState<string | null>(null);
+    const [treasuryBalance, setTreasuryBalance] = useState<number | null>(null);
 
     // Retrieve the admin wallet from environment variable, fallback to empty string if not set
     const adminWalletStr = process.env.NEXT_PUBLIC_ADMIN_WALLET || "";
@@ -53,6 +56,21 @@ export default function AdminPage() {
             setLoading(false);
         }
     };
+
+    const fetchTreasuryBalance = useCallback(async () => {
+        try {
+            const bal = await getTreasuryBalance();
+            setTreasuryBalance(bal);
+        } catch {
+            setTreasuryBalance(null);
+        }
+    }, []);
+
+    useEffect(() => {
+        if (publicKey && adminWalletStr && publicKey.toBase58() === adminWalletStr) {
+            fetchTreasuryBalance();
+        }
+    }, [publicKey, adminWalletStr, fetchTreasuryBalance]);
 
     const handleVerify = async (walletAddress: string) => {
         if (!confirm("Are you sure you want to verify this creator?")) return;
@@ -126,6 +144,28 @@ export default function AdminPage() {
                 <div style={{ width: 40 }} />
             </div>
 
+            <div className="section-header" style={{ marginBottom: '8px' }}>
+                <h2>Treasury</h2>
+                <span style={{ color: 'var(--sakura-pink)', fontSize: '0.9rem' }}>
+                    {treasuryBalance !== null ? `${treasuryBalance.toLocaleString(undefined, { maximumFractionDigits: 0 })} $SAKURA` : "..."}
+                </span>
+            </div>
+            <div style={{
+                background: 'rgba(0,0,0,0.2)',
+                border: '1px solid rgba(255, 255, 255, 0.1)',
+                borderRadius: '16px',
+                padding: '20px',
+                marginBottom: '24px',
+            }}>
+                <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem', lineHeight: 1.6 }}>
+                    Tips, donations, and trading fees go directly to the admin wallet.
+                    To withdraw, use any Solana wallet (Phantom, etc.) connected with:
+                </p>
+                <code style={{ display: 'block', marginTop: 8, fontSize: '0.8rem', color: 'var(--sakura-pink)', background: 'rgba(255,183,197,0.08)', padding: '8px 12px', borderRadius: '8px', wordBreak: 'break-all' }}>
+                    {SAKURA_TREASURY_ADMIN.toBase58()}
+                </code>
+            </div>
+
             <div className="section-header">
                 <h2>Pending Verifications</h2>
                 <span style={{ color: 'var(--text-secondary)', fontSize: '0.9rem' }}>{pendingCreators.length} Total</span>
@@ -182,7 +222,7 @@ export default function AdminPage() {
                                     padding: '10px',
                                     fontSize: '0.9rem'
                                 }}>
-                                    <span style={{ color: 'var(--text-secondary)' }}>MangaDex Link: </span>
+                                    <span style={{ color: 'var(--text-secondary)' }}>Shueisha Link: </span>
                                     <Link href={`https://mangadex.org/author/${creator.mangadex_author_id}`} target="_blank" style={{ color: 'var(--sakura-pink)' }}>
                                         {creator.authorName || creator.mangadex_author_id}
                                     </Link>

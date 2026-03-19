@@ -6,13 +6,11 @@ import { useWallet } from "@solana/wallet-adapter-react";
 import { useSakuraWalletModal } from "@/components/SakuraWalletModal";
 import {
     TRADING_FEE_SAKURA,
-    FEE_SPLITS,
     RISK_PARAMS,
     MARKET_CONFIG,
     PERCOLATOR_PROGRAM_ID,
     getDevnetConnection,
 } from "@/lib/percolator/config";
-import { calculateTradingFeeSplits } from "@/lib/percolator/fee-router";
 
 // ============ Types ============
 
@@ -142,8 +140,6 @@ export default function TradePage() {
             liquidationPrice: 126.20,
         },
     ]);
-
-    const feeSplits = calculateTradingFeeSplits();
 
     // ============ Simulated Live Data ============
 
@@ -582,7 +578,7 @@ export default function TradePage() {
                             </div>
                             <div className="perp-info-row sakura-fee">
                                 <span>🌸 Sakura Fee</span>
-                                <span>{TRADING_FEE_SAKURA} $SAKURA</span>
+                                <span>{TRADING_FEE_SAKURA.toLocaleString()} $SAKURA</span>
                             </div>
                         </div>
 
@@ -707,7 +703,7 @@ export default function TradePage() {
                 {/* Powered by */}
                 <div className="perp-powered">
                     <span className="perp-powered-dot" />
-                    Powered by Percolator Protocol on Solana · {TRADING_FEE_SAKURA} $SAKURA per trade
+                    Powered by Percolator Protocol on Solana · {TRADING_FEE_SAKURA.toLocaleString()} $SAKURA per trade
                 </div>
             </main>
         </>

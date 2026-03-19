@@ -60,7 +60,7 @@ function CreatorApplyPageContent() {
                 setSuccess(true);
                 // Optionally redirect to their new profile after a few seconds
                 setTimeout(() => {
-                    router.push(`/creator/${publicKey.toBase58()}`);
+                    router.push(`/creator?id=${publicKey.toBase58()}`);
                 }, 3000);
             } else {
                 setError("Failed to submit application. Please try again.");
@@ -95,7 +95,7 @@ function CreatorApplyPageContent() {
                     <div style={{ fontSize: '48px', marginBottom: '16px' }}>🌸</div>
                     <h1 style={{ fontSize: '1.8rem', marginBottom: '8px' }}>Become a Verified Creator</h1>
                     <p style={{ color: 'var(--text-secondary)' }}>
-                        Link your Solana wallet to your MangaDex portfolio. Verified creators can receive instant SOL tips directly from readers.
+                        Link your Solana wallet to your Shueisha portfolio. Verified creators receive $SAKURA tips directly from readers.
                     </p>
                 </div>
 
@@ -126,7 +126,7 @@ function CreatorApplyPageContent() {
 
                         <div>
                             <label style={{ display: 'block', marginBottom: '8px', color: 'var(--text-secondary)', fontSize: '0.9rem' }}>
-                                MangaDex Author ID (Optional)
+                                Shueisha Author ID (Optional)
                             </label>
                             <input
                                 type="text"
@@ -139,7 +139,7 @@ function CreatorApplyPageContent() {
                                 }}
                             />
                             <p style={{ fontSize: '0.8rem', color: '#666', marginTop: '6px' }}>
-                                If you already publish on MangaDex, enter your Author ID to instantly link all your published works to this verified profile.
+                                If you already publish on Shueisha, enter your Author ID to instantly link all your published works to this verified profile.
                             </p>
                         </div>
 

@@ -105,6 +105,25 @@ export async function getCreatorTips(walletAddress: string): Promise<TipRecord[]
     return data || [];
 }
 
+export async function searchCreators(query: string): Promise<CreatorProfile[]> {
+    if (!supabase || !query.trim()) return [];
+
+    const { data, error } = await supabase
+        .from("creator_profiles")
+        .select("*")
+        .ilike("display_name", `%${query.trim()}%`)
+        .eq("is_verified", true)
+        .order("display_name", { ascending: true })
+        .limit(20);
+
+    if (error) {
+        console.error("Error searching creators:", error);
+        return [];
+    }
+
+    return data || [];
+}
+
 // Admin Functions
 export async function getPendingCreators(): Promise<CreatorProfile[]> {
     if (!supabase) return [];

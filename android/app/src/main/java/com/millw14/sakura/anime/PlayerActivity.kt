@@ -1,6 +1,7 @@
 package com.millw14.sakura.anime
 
 import android.app.Activity
+import android.app.AlertDialog
 import android.content.Intent
 import android.content.SharedPreferences
 import android.content.pm.ActivityInfo
@@ -12,6 +13,7 @@ import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.text.TextUtils
+import android.util.Log
 import android.util.TypedValue
 import android.view.Gravity
 import android.view.View
@@ -30,6 +32,8 @@ import androidx.media3.common.MimeTypes
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.common.TrackSelectionParameters
+import androidx.media3.common.Tracks
+import androidx.media3.common.ForwardingPlayer
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.okhttp.OkHttpDataSource
 import androidx.media3.exoplayer.DefaultLoadControl
@@ -44,6 +48,7 @@ import java.util.concurrent.TimeUnit
 class PlayerActivity : AppCompatActivity() {
 
     companion object {
+        private const val TAG = "PlayerActivity"
         const val EXTRA_STREAM_URL = "stream_url"
         const val EXTRA_REFERER = "referer"
         const val EXTRA_TITLE = "title"
@@ -55,6 +60,8 @@ class PlayerActivity : AppCompatActivity() {
         private const val PREFS_NAME = "sakura_player_prefs"
         private const val UP_NEXT_THRESHOLD_MS = 60_000L
         private const val COUNTDOWN_SECONDS = 5
+        private const val BUFFERING_TIMEOUT_MS = 15_000L
+        private const val MAX_ERROR_RETRIES = 2
     }
 
     private var player: ExoPlayer? = null
@@ -74,6 +81,11 @@ class PlayerActivity : AppCompatActivity() {
     private val handler = Handler(Looper.getMainLooper())
     private var countdownValue = COUNTDOWN_SECONDS
 
+    private lateinit var titleOverlay: LinearLayout
+    private var errorRetryCount = 0
+    private var currentStreamUrl: String = ""
+    private var currentReferer: String = ""
+
     private val positionChecker = object : Runnable {
         override fun run() {
             val p = player ?: return
@@ -87,6 +99,15 @@ class PlayerActivity : AppCompatActivity() {
             if (p.isPlaying) {
                 handler.postDelayed(this, 1000)
             }
+        }
+    }
+
+    private val bufferingWatchdog = Runnable {
+        val p = player ?: return@Runnable
+        if (p.playbackState == Player.STATE_BUFFERING) {
+            Log.w(TAG, "Buffering watchdog triggered — forcing re-seek")
+            val pos = p.currentPosition
+            p.seekTo(pos)
         }
     }
 
@@ -112,18 +133,36 @@ class PlayerActivity : AppCompatActivity() {
         episodeId = intent.getStringExtra(EXTRA_EPISODE_ID) ?: ""
         hasNext = intent.getBooleanExtra(EXTRA_HAS_NEXT, false)
         nextTitle = intent.getStringExtra(EXTRA_NEXT_TITLE) ?: ""
+        val title = intent.getStringExtra(EXTRA_TITLE) ?: ""
 
-        val root = FrameLayout(this)
+        val root = FrameLayout(this).apply { setBackgroundColor(Color.BLACK) }
 
         playerView = PlayerView(this).apply {
             keepScreenOn = true
             resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
             setShowSubtitleButton(true)
+            setShowNextButton(true)
+            setShowPreviousButton(false)
         }
         root.addView(playerView, FrameLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT,
             ViewGroup.LayoutParams.MATCH_PARENT
         ))
+
+        titleOverlay = buildTitleOverlay(title)
+        titleOverlay.visibility = View.GONE
+        root.addView(titleOverlay, FrameLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            ViewGroup.LayoutParams.WRAP_CONTENT
+        ).apply {
+            gravity = Gravity.TOP
+        })
+
+        playerView.setControllerVisibilityListener(
+            PlayerView.ControllerVisibilityListener { visibility ->
+                titleOverlay.visibility = visibility
+            }
+        )
 
         upNextCard = buildUpNextCard()
         upNextCard.visibility = View.GONE
@@ -144,14 +183,78 @@ class PlayerActivity : AppCompatActivity() {
             return
         }
 
+        currentStreamUrl = streamUrl
         val isLocal = intent.getBooleanExtra(EXTRA_IS_LOCAL, false)
         if (isLocal) {
             initializeLocalPlayer(streamUrl)
         } else {
-            val referer = intent.getStringExtra(EXTRA_REFERER) ?: "https://hianime.to/"
-            initializePlayer(streamUrl, referer)
+            currentReferer = intent.getStringExtra(EXTRA_REFERER) ?: ""
+            initializePlayer(streamUrl, currentReferer)
         }
     }
+
+    /* ── Title Overlay ── */
+
+    private fun buildTitleOverlay(title: String): LinearLayout {
+        val overlay = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            setPadding(dp(20), dp(16), dp(20), dp(24))
+            background = GradientDrawable(
+                GradientDrawable.Orientation.TOP_BOTTOM,
+                intArrayOf(Color.parseColor("#CC000000"), Color.TRANSPARENT)
+            )
+            gravity = Gravity.CENTER_VERTICAL
+            isClickable = false
+            isFocusable = false
+        }
+
+        val textColumn = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+        }
+
+        textColumn.addView(TextView(this).apply {
+            text = title.ifEmpty { "Now Playing" }
+            setTextColor(Color.WHITE)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 15f)
+            typeface = Typeface.DEFAULT_BOLD
+            maxLines = 1
+            ellipsize = TextUtils.TruncateAt.END
+            setShadowLayer(4f, 0f, 2f, Color.BLACK)
+        })
+
+        val epLabel = intent.getStringExtra(EXTRA_EPISODE_ID)?.let { epId ->
+            val num = epId.substringAfterLast("-episode-", "").substringBefore("-")
+            if (num.isNotEmpty()) "Episode $num" else null
+        }
+        if (epLabel != null) {
+            textColumn.addView(TextView(this).apply {
+                text = epLabel
+                setTextColor(Color.parseColor("#FFB7C5"))
+                setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
+                alpha = 0.9f
+                setShadowLayer(4f, 0f, 2f, Color.BLACK)
+            })
+        }
+
+        overlay.addView(textColumn)
+
+        val qualityBtn = TextView(this).apply {
+            text = "\u2699"
+            setTextColor(Color.WHITE)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 22f)
+            setPadding(dp(12), dp(4), dp(4), dp(4))
+            isClickable = true
+            isFocusable = true
+            setShadowLayer(4f, 0f, 2f, Color.BLACK)
+            setOnClickListener { showQualitySelector() }
+        }
+        overlay.addView(qualityBtn)
+
+        return overlay
+    }
+
+    /* ── UI Cards ── */
 
     private fun buildUpNextCard(): LinearLayout {
         val card = LinearLayout(this).apply {
@@ -221,6 +324,7 @@ class PlayerActivity : AppCompatActivity() {
         resultSent = true
         handler.removeCallbacks(positionChecker)
         handler.removeCallbacks(countdownRunner)
+        handler.removeCallbacks(bufferingWatchdog)
 
         if (completed && episodeId.isNotEmpty()) {
             clearSavedPosition()
@@ -231,6 +335,83 @@ class PlayerActivity : AppCompatActivity() {
             putExtra("episodeId", episodeId)
         })
         finish()
+    }
+
+    /* ── Quality Selector ── */
+
+    private fun wrapWithSkipNext(exo: ExoPlayer): ForwardingPlayer {
+        return object : ForwardingPlayer(exo) {
+            override fun seekToNext() {
+                if (hasNext) finishWithResult(true) else exo.seekToNext()
+            }
+            override fun seekToNextMediaItem() {
+                if (hasNext) finishWithResult(true) else exo.seekToNextMediaItem()
+            }
+            override fun hasNextMediaItem(): Boolean {
+                return hasNext || exo.hasNextMediaItem()
+            }
+            override fun getAvailableCommands(): Player.Commands {
+                return if (hasNext) {
+                    super.getAvailableCommands().buildUpon()
+                        .add(Player.COMMAND_SEEK_TO_NEXT)
+                        .add(Player.COMMAND_SEEK_TO_NEXT_MEDIA_ITEM)
+                        .build()
+                } else {
+                    super.getAvailableCommands()
+                }
+            }
+            override fun isCommandAvailable(command: Int): Boolean {
+                if (hasNext && (command == Player.COMMAND_SEEK_TO_NEXT || command == Player.COMMAND_SEEK_TO_NEXT_MEDIA_ITEM)) {
+                    return true
+                }
+                return super.isCommandAvailable(command)
+            }
+        }
+    }
+
+    private fun showQualitySelector() {
+        val p = player ?: return
+        val trackGroups = p.currentTracks.groups
+        val videoHeights = mutableListOf<Pair<String, Int>>()
+        videoHeights.add(Pair("Auto", 0))
+
+        for (group in trackGroups) {
+            if (group.type == C.TRACK_TYPE_VIDEO) {
+                for (i in 0 until group.length) {
+                    val format = group.getTrackFormat(i)
+                    val h = format.height
+                    if (h > 0 && videoHeights.none { it.second == h }) {
+                        videoHeights.add(Pair("${h}p", h))
+                    }
+                }
+            }
+        }
+
+        videoHeights.sortWith(compareByDescending<Pair<String, Int>> { it.second }.thenBy { it.first })
+
+        val currentMaxH = p.trackSelectionParameters.maxVideoHeight
+        val labels = videoHeights.map { it.first }.toTypedArray()
+        var selectedIdx = videoHeights.indexOfFirst {
+            if (it.second == 0) currentMaxH == Int.MAX_VALUE
+            else it.second == currentMaxH
+        }.coerceAtLeast(0)
+
+        AlertDialog.Builder(this, android.R.style.Theme_Material_Dialog_Alert)
+            .setTitle("Video Quality")
+            .setSingleChoiceItems(labels, selectedIdx) { dialog, which ->
+                selectedIdx = which
+                val chosen = videoHeights[which]
+                val newParams = p.trackSelectionParameters.buildUpon()
+                if (chosen.second == 0) {
+                    newParams.setMaxVideoSize(Int.MAX_VALUE, Int.MAX_VALUE)
+                } else {
+                    newParams.setMaxVideoSize(Int.MAX_VALUE, chosen.second)
+                }
+                p.trackSelectionParameters = newParams.build()
+                dialog.dismiss()
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
     }
 
     /* ── Position persistence ── */
@@ -250,7 +431,7 @@ class PlayerActivity : AppCompatActivity() {
         val pos = getPrefs().getLong("anime_pos_$episodeId", 0L)
         if (pos > 0) {
             player?.seekTo(pos)
-            android.util.Log.d("PlayerActivity", "Restored position to ${pos}ms for $episodeId")
+            Log.d(TAG, "Restored position to ${pos}ms for $episodeId")
         }
     }
 
@@ -264,29 +445,41 @@ class PlayerActivity : AppCompatActivity() {
     private fun initializePlayer(url: String, referer: String) {
         val okHttpClient = OkHttpClient.Builder()
             .connectTimeout(15, TimeUnit.SECONDS)
-            .readTimeout(20, TimeUnit.SECONDS)
+            .readTimeout(30, TimeUnit.SECONDS)
+            .followRedirects(true)
+            .followSslRedirects(true)
             .build()
+
+        val requestProps = mutableMapOf("Accept" to "*/*")
+        if (referer.isNotEmpty()) {
+            requestProps["Referer"] = referer
+            try {
+                val u = java.net.URL(referer)
+                requestProps["Origin"] = "${u.protocol}://${u.host}"
+            } catch (_: Exception) {}
+        }
 
         val dataSourceFactory = OkHttpDataSource.Factory(okHttpClient)
             .setUserAgent(
                 "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 " +
                 "(KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36"
             )
-            .setDefaultRequestProperties(
-                mapOf(
-                    "Referer" to referer,
-                    "Origin" to referer.trimEnd('/'),
-                    "Accept" to "*/*"
-                )
-            )
+            .setDefaultRequestProperties(requestProps)
 
         val subtitleConfigs = if (!retriedWithoutSubs) buildSubtitleConfigs() else emptyList()
         hasSubtitles = subtitleConfigs.isNotEmpty()
 
+        val mimeType = when {
+            url.contains(".m3u8") -> MimeTypes.APPLICATION_M3U8
+            url.contains(".mp4") -> MimeTypes.VIDEO_MP4
+            url.contains(".webm") -> MimeTypes.VIDEO_WEBM
+            else -> null
+        }
+
         val mediaItem = MediaItem.Builder()
             .setUri(url)
-            .setMimeType(MimeTypes.APPLICATION_M3U8)
             .apply {
+                if (mimeType != null) setMimeType(mimeType)
                 if (subtitleConfigs.isNotEmpty()) {
                     setSubtitleConfigurations(subtitleConfigs)
                 }
@@ -296,10 +489,6 @@ class PlayerActivity : AppCompatActivity() {
         val mediaSource = DefaultMediaSourceFactory(dataSourceFactory)
             .createMediaSource(mediaItem)
 
-        if (hasSubtitles) {
-            android.util.Log.d("PlayerActivity", "Loading ${subtitleConfigs.size} subtitle tracks")
-        }
-
         val loadControl = DefaultLoadControl.Builder()
             .setBufferDurationsMs(30_000, 120_000, 5_000, 8_000)
             .setPrioritizeTimeOverSizeThresholds(true)
@@ -308,7 +497,7 @@ class PlayerActivity : AppCompatActivity() {
         player = ExoPlayer.Builder(this)
             .setLoadControl(loadControl)
             .build().also { exo ->
-            playerView.player = exo
+            playerView.player = wrapWithSkipNext(exo)
 
             val audioAttributes = AudioAttributes.Builder()
                 .setUsage(C.USAGE_MEDIA)
@@ -327,24 +516,53 @@ class PlayerActivity : AppCompatActivity() {
 
             exo.addListener(object : Player.Listener {
                 override fun onPlayerError(error: PlaybackException) {
-                    android.util.Log.e("PlayerActivity", "Playback error", error)
+                    Log.e(TAG, "Playback error (retries=$errorRetryCount)", error)
+                    handler.removeCallbacks(bufferingWatchdog)
+
                     if (hasSubtitles && !retriedWithoutSubs) {
-                        android.util.Log.d("PlayerActivity", "Retrying without subtitles")
+                        Log.d(TAG, "Retrying without subtitles")
                         retriedWithoutSubs = true
+                        val savedPos = player?.currentPosition ?: 0L
                         player?.release()
                         player = null
                         initializePlayer(url, referer)
+                        if (savedPos > 0) {
+                            positionRestored = false
+                        }
+                        return
+                    }
+
+                    if (errorRetryCount < MAX_ERROR_RETRIES) {
+                        errorRetryCount++
+                        Log.d(TAG, "Error recovery: retry #$errorRetryCount from current position")
+                        val savedPos = player?.currentPosition ?: 0L
+                        player?.release()
+                        player = null
+                        positionRestored = true
+                        initializePlayer(url, referer)
+                        handler.postDelayed({
+                            if (savedPos > 0) player?.seekTo(savedPos)
+                        }, 500)
                         return
                     }
                 }
 
                 override fun onPlaybackStateChanged(playbackState: Int) {
-                    if (playbackState == Player.STATE_READY) {
-                        restorePosition()
-                        handler.post(positionChecker)
-                    }
-                    if (playbackState == Player.STATE_ENDED) {
-                        onPlaybackEnded()
+                    when (playbackState) {
+                        Player.STATE_BUFFERING -> {
+                            handler.removeCallbacks(bufferingWatchdog)
+                            handler.postDelayed(bufferingWatchdog, BUFFERING_TIMEOUT_MS)
+                        }
+                        Player.STATE_READY -> {
+                            handler.removeCallbacks(bufferingWatchdog)
+                            errorRetryCount = 0
+                            restorePosition()
+                            handler.post(positionChecker)
+                        }
+                        Player.STATE_ENDED -> {
+                            handler.removeCallbacks(bufferingWatchdog)
+                            onPlaybackEnded()
+                        }
                     }
                 }
 
@@ -365,7 +583,7 @@ class PlayerActivity : AppCompatActivity() {
         player = ExoPlayer.Builder(this)
             .setLoadControl(loadControl)
             .build().also { exo ->
-            playerView.player = exo
+            playerView.player = wrapWithSkipNext(exo)
 
             val audioAttributes = AudioAttributes.Builder()
                 .setUsage(C.USAGE_MEDIA)
@@ -379,12 +597,20 @@ class PlayerActivity : AppCompatActivity() {
 
             exo.addListener(object : Player.Listener {
                 override fun onPlaybackStateChanged(playbackState: Int) {
-                    if (playbackState == Player.STATE_READY) {
-                        restorePosition()
-                        handler.post(positionChecker)
-                    }
-                    if (playbackState == Player.STATE_ENDED) {
-                        onPlaybackEnded()
+                    when (playbackState) {
+                        Player.STATE_BUFFERING -> {
+                            handler.removeCallbacks(bufferingWatchdog)
+                            handler.postDelayed(bufferingWatchdog, BUFFERING_TIMEOUT_MS)
+                        }
+                        Player.STATE_READY -> {
+                            handler.removeCallbacks(bufferingWatchdog)
+                            restorePosition()
+                            handler.post(positionChecker)
+                        }
+                        Player.STATE_ENDED -> {
+                            handler.removeCallbacks(bufferingWatchdog)
+                            onPlaybackEnded()
+                        }
                     }
                 }
 
@@ -417,7 +643,7 @@ class PlayerActivity : AppCompatActivity() {
                 val subUrl = obj.getString("url")
                 val label = obj.optString("label", "Subtitle")
 
-                val mimeType = when {
+                val subMime = when {
                     subUrl.lowercase().endsWith(".srt") -> MimeTypes.APPLICATION_SUBRIP
                     subUrl.lowercase().endsWith(".ass") || subUrl.lowercase().endsWith(".ssa") -> MimeTypes.TEXT_SSA
                     else -> MimeTypes.TEXT_VTT
@@ -425,7 +651,7 @@ class PlayerActivity : AppCompatActivity() {
 
                 configs.add(
                     MediaItem.SubtitleConfiguration.Builder(Uri.parse(subUrl))
-                        .setMimeType(mimeType)
+                        .setMimeType(subMime)
                         .setLabel(label)
                         .setLanguage("en")
                         .setSelectionFlags(C.SELECTION_FLAG_DEFAULT)
@@ -433,7 +659,7 @@ class PlayerActivity : AppCompatActivity() {
                 )
             }
         } catch (e: Exception) {
-            android.util.Log.e("PlayerActivity", "Failed to parse subtitle configs", e)
+            Log.e(TAG, "Failed to parse subtitle configs", e)
         }
         return configs
     }

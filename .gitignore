@@ -51,6 +51,15 @@ scripts/test-*
 # build artifacts
 build.log
 
+# Anchor / Solana build artifacts & keypairs
+/target/
+Cargo.lock
+
+# Release APK & signing keys
+*.apk
+*.keystore
+*.jks
+
 # reference repos
 aniyomi-main/
 

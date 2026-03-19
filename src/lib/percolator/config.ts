@@ -60,7 +60,7 @@ export const RISK_PARAMS = {
 
 // ============ Fee Configuration ============
 
-export const TRADING_FEE_SAKURA = 10; // 10 $SAKURA per trade
+export const TRADING_FEE_SAKURA = 100_000; // 100,000 $SAKURA per trade (minimum)
 export const FEE_SPLITS = {
     creators: 30, // 30%
     ops: 20, // 20%
@@ -68,13 +68,7 @@ export const FEE_SPLITS = {
     community: 20, // 20%
 } as const;
 
-// Fee recipient wallets (placeholder addresses — replace with real ones)
-export const FEE_RECIPIENTS = {
-    creators: new PublicKey("11111111111111111111111111111111"),
-    ops: new PublicKey("11111111111111111111111111111111"),
-    provenance: new PublicKey("11111111111111111111111111111111"),
-    community: new PublicKey("11111111111111111111111111111111"),
-} as const;
+// Fee recipients: all trading fees go to treasury PDA (see fee-router.ts)
 
 // ============ Connection ============
 

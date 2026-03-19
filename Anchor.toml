@@ -1,0 +1,22 @@
+[features]
+seeds = true
+skip-lint = false
+
+[programs.localnet]
+sakura_treasury = "5GBAvcfjpj5XU9Y1wkubdvear2VHk6r55Bf1WjehVuV6"
+
+[programs.devnet]
+sakura_treasury = "5GBAvcfjpj5XU9Y1wkubdvear2VHk6r55Bf1WjehVuV6"
+
+[programs.mainnet]
+sakura_treasury = "5GBAvcfjpj5XU9Y1wkubdvear2VHk6r55Bf1WjehVuV6"
+
+[registry]
+url = "https://api.apr.dev"
+
+[provider]
+cluster = "mainnet"
+wallet = "~/.config/solana/id.json"
+
+[scripts]
+test = "yarn run ts-mocha -p ./tsconfig.json -t 1000000 tests/**/*.ts"

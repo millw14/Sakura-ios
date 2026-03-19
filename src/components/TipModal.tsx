@@ -1,193 +1,233 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useWallet } from "@solana/wallet-adapter-react";
-import { PublicKey, SystemProgram, Transaction, LAMPORTS_PER_SOL } from "@solana/web3.js";
 import { getConnection } from "@/lib/solana";
+import { SAKURA_MINT } from "@/lib/solana";
+import { buildDepositTx } from "@/lib/treasury";
 import { recordTip } from "@/lib/creator";
 
-export default function TipModal({ receiverAddress, onClose }: { receiverAddress: string, onClose: () => void }) {
-    const { publicKey, sendTransaction, connected } = useWallet();
-    const [amount, setAmount] = useState<number>(1000); // Default 1000 SAKURA
-    const [customAmount, setCustomAmount] = useState("");
-    const [isLoading, setIsLoading] = useState(false);
-    const [error, setError] = useState<string | null>(null);
-    const [success, setSuccess] = useState(false);
+const PRESETS = [100_000, 250_000, 500_000, 1_000_000];
+const MIN_SAKURA = 100_000;
 
-    const handleTip = async () => {
-        if (!connected || !publicKey) {
-            setError("Please connect your wallet first.");
+type Step = "amount" | "processing" | "done" | "error";
+
+interface Props {
+    onClose: () => void;
+    header?: string;
+    subtitle?: string;
+    onComplete?: () => void;
+    receiverAddress?: string;
+}
+
+export default function TipModal({
+    onClose,
+    header = "Support Sakura",
+    subtitle = "Donate $SAKURA to the Sakura treasury",
+    onComplete,
+    receiverAddress,
+}: Props) {
+    const { publicKey, signTransaction } = useWallet();
+    const [step, setStep] = useState<Step>("amount");
+    const [amount, setAmount] = useState("");
+    const [sakuraBalance, setSakuraBalance] = useState<number | null>(null);
+    const [error, setError] = useState("");
+    const [txid, setTxid] = useState("");
+
+    const fetchBalance = useCallback(() => {
+        if (!publicKey) {
+            setSakuraBalance(null);
+            return;
+        }
+        getConnection()
+            .getParsedTokenAccountsByOwner(publicKey, { mint: SAKURA_MINT })
+            .then((accounts) => {
+                if (accounts.value.length > 0) {
+                    let total = 0;
+                    for (const acc of accounts.value) {
+                        const amt = acc.account.data.parsed.info.tokenAmount.uiAmount;
+                        total += Number(amt ?? 0);
+                    }
+                    setSakuraBalance(total);
+                } else {
+                    setSakuraBalance(0);
+                }
+            })
+            .catch(() => setSakuraBalance(0));
+    }, [publicKey]);
+
+    useEffect(() => {
+        fetchBalance();
+    }, [fetchBalance]);
+
+    const handleConfirm = async () => {
+        if (!publicKey || !signTransaction) {
+            setError("Connect your wallet first");
             return;
         }
 
-        const tipAmount = customAmount ? parseFloat(customAmount) : amount;
-        if (!tipAmount || tipAmount <= 0) {
-            setError("Please enter a valid amount.");
+        const amt = Number(amount.replace(/,/g, ""));
+        if (isNaN(amt) || amt < MIN_SAKURA) {
+            setError(`Minimum is ${MIN_SAKURA.toLocaleString()} SAKURA`);
             return;
         }
+
+        if (sakuraBalance !== null && amt > sakuraBalance) {
+            setError("Insufficient balance");
+            return;
+        }
+
+        setStep("processing");
+        setError("");
 
         try {
-            setError(null);
-            setIsLoading(true);
+            const tx = await buildDepositTx(publicKey, amt, receiverAddress);
+            const signed = await signTransaction(tx);
+            const conn = getConnection();
+            const sig = await conn.sendRawTransaction(signed.serialize());
 
-            // Import dynamically to avoid heavy bundles if not needed immediately
-            const { createTransferInstruction, getAssociatedTokenAddress, createAssociatedTokenAccountInstruction } = await import("@solana/spl-token");
-            const { SAKURA_MINT, SAKURA_DECIMALS } = await import("@/lib/solana");
-
-            const connection = getConnection();
-            const transaction = new Transaction();
-            const receiverPubkey = new PublicKey(receiverAddress);
-
-            // Get standard ATAs
-            const senderATA = await getAssociatedTokenAddress(SAKURA_MINT, publicKey);
-            const receiverATA = await getAssociatedTokenAddress(SAKURA_MINT, receiverPubkey);
-
-            // Check if receiver ATA exists, otherwise add creation instruction
-            const receiverAccountData = await connection.getAccountInfo(receiverATA);
-            if (!receiverAccountData) {
-                transaction.add(
-                    createAssociatedTokenAccountInstruction(
-                        publicKey,
-                        receiverATA,
-                        receiverPubkey,
-                        SAKURA_MINT
-                    )
-                );
-            }
-
-            // Add SAKURA transfer instruction
-            // Use BN or BigInt for decimals calculation to prevent floating point inaccuracies
-            const amountWithDecimals = BigInt(Math.round(tipAmount * (10 ** SAKURA_DECIMALS)));
-
-            transaction.add(
-                createTransferInstruction(
-                    senderATA,
-                    receiverATA,
-                    publicKey,
-                    amountWithDecimals
-                )
+            await conn.confirmTransaction(
+                {
+                    signature: sig,
+                    blockhash: tx.recentBlockhash!,
+                    lastValidBlockHeight: tx.lastValidBlockHeight!,
+                },
+                "confirmed"
             );
 
-            // Fetch recent blockhash
-            const { blockhash } = await connection.getLatestBlockhash();
-            transaction.recentBlockhash = blockhash;
-            transaction.feePayer = publicKey;
+            setTxid(sig);
+            setStep("done");
 
-            // Send transaction (this triggers biometric signing in our embedded adapter)
-            const signature = await sendTransaction(transaction, connection);
+            if (receiverAddress) {
+                recordTip(sig, publicKey.toBase58(), receiverAddress, amt).catch(() => {});
+            }
 
-            // Wait for confirmation
-            await connection.confirmTransaction(signature, 'processed');
-
-            // Record tip in Database
-            await recordTip(signature, publicKey.toBase58(), receiverAddress, tipAmount);
-
-            setSuccess(true);
-            setTimeout(() => {
-                onClose();
-            }, 2000);
-
-        } catch (err: any) {
-            console.error("Tip Error:", err);
-            setError(err?.message || "Transaction failed.");
-        } finally {
-            setIsLoading(false);
+            onComplete?.();
+        } catch (e: unknown) {
+            setError(e instanceof Error ? e.message : "Transaction failed");
+            setStep("error");
         }
     };
 
+    useEffect(() => {
+        const handler = (e: KeyboardEvent) => {
+            if (e.key === "Escape" && step === "amount") onClose();
+        };
+        window.addEventListener("keydown", handler);
+        return () => window.removeEventListener("keydown", handler);
+    }, [onClose, step]);
+
+    const amtNum = Number(amount.replace(/,/g, ""));
+    const isValid = !isNaN(amtNum) && amtNum >= MIN_SAKURA;
+    const hasBalance = sakuraBalance !== null && isValid && amtNum <= sakuraBalance;
+
+    const shortAddr = receiverAddress
+        ? `${receiverAddress.slice(0, 4)}...${receiverAddress.slice(-4)}`
+        : null;
+
     return (
-        <div className="sakura-wallet-overlay" onClick={onClose} style={{ zIndex: 10000 }}>
-            <div className="sakura-wallet-modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 400 }}>
-                <div className="swm-petals">
-                    <span className="swm-petal" style={{ top: '-6px', left: '20%', animationDelay: '0s' }}>🌸</span>
-                </div>
+        <div className="buy-sakura-overlay" onClick={() => step === "amount" && onClose()}>
+            <div className="buy-sakura-modal" onClick={(e) => e.stopPropagation()}>
+                {step === "amount" && (
+                    <>
+                        <button className="bsm-close" onClick={onClose}>✕</button>
+                        <div className="bsm-header">
+                            <div className="bsm-icon">🌸</div>
+                            <h2>{header}</h2>
+                            <p className="bsm-subtitle">{subtitle}</p>
+                            {shortAddr && (
+                                <p style={{ color: 'var(--sakura-pink)', fontSize: '0.8rem', marginTop: 4, fontFamily: 'monospace' }}>
+                                    Sending to {shortAddr}
+                                </p>
+                            )}
+                        </div>
 
-                <button className="swm-close" onClick={onClose}>✕</button>
-
-                {success ? (
-                    <div className="swm-connected" style={{ textAlign: 'center', padding: '40px 20px' }}>
-                        <div style={{ fontSize: '48px', marginBottom: '16px' }}>💖</div>
-                        <h2 className="swm-title">Tip Sent!</h2>
-                        <p className="swm-subtitle" style={{ marginTop: '8px' }}>Thank you for supporting this creator!</p>
-                    </div>
-                ) : (
-                    <div className="swm-select" style={{ padding: '10px' }}>
-                        <h2 className="swm-title" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="var(--sakura-pink)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" /></svg>
-                            Tip Creator
-                        </h2>
-                        <p className="swm-subtitle">Send $SAKURA directly to their public wallet.</p>
-
-                        {!connected && (
-                            <div className="swm-error" style={{ marginTop: '16px' }}>
-                                You must sign in to tip creators.
-                            </div>
-                        )}
-
-                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '8px', margin: '24px 0 16px' }}>
-                            {[1000, 5000, 10000].map((val) => (
-                                <button
-                                    key={val}
-                                    onClick={() => { setAmount(val); setCustomAmount(""); }}
-                                    style={{
-                                        padding: '12px 0',
-                                        borderRadius: '12px',
-                                        border: amount === val && !customAmount ? '2px solid var(--sakura-pink)' : '2px solid rgba(255,255,255,0.1)',
-                                        background: amount === val && !customAmount ? 'rgba(255, 183, 197, 0.2)' : 'rgba(0,0,0,0.2)',
-                                        color: '#fff',
-                                        fontWeight: 'bold',
-                                        cursor: 'pointer',
-                                        transition: 'all 0.2s',
-                                        opacity: connected ? 1 : 0.5
+                        <div className="bsm-input-section">
+                            <label className="bsm-label">Amount ($SAKURA)</label>
+                            <div className="bsm-input-row">
+                                <div className="bsm-input-icon">🌸</div>
+                                <input
+                                    type="text"
+                                    inputMode="numeric"
+                                    className="bsm-input"
+                                    value={amount}
+                                    onChange={(e) => {
+                                        const v = e.target.value.replace(/[^0-9,]/g, "");
+                                        setAmount(v);
+                                        setError("");
                                     }}
-                                    disabled={!connected}
+                                    placeholder="100,000"
+                                    autoFocus
+                                />
+                            </div>
+                            <div className="bsm-balance-row">
+                                <span>Balance: {sakuraBalance !== null ? sakuraBalance.toLocaleString(undefined, { maximumFractionDigits: 0 }) : "..."} $SAKURA</span>
+                                <span className="bsm-estimate">Min: {MIN_SAKURA.toLocaleString()}</span>
+                            </div>
+                        </div>
+
+                        {error && <div className="bsm-error">{error}</div>}
+
+                        <div className="bsm-presets">
+                            {PRESETS.map((v) => (
+                                <button
+                                    key={v}
+                                    className={`bsm-preset ${amount === v.toString() ? "active" : ""}`}
+                                    onClick={() => setAmount(v.toString())}
                                 >
-                                    🌸 {val.toLocaleString()}
+                                    {v >= 1_000_000 ? `${v / 1_000_000}M` : v.toLocaleString()}
                                 </button>
                             ))}
                         </div>
 
-                        <div style={{ marginBottom: '24px' }}>
-                            <input
-                                type="number"
-                                placeholder="Custom Amount ($SAKURA)"
-                                value={customAmount}
-                                onChange={(e) => { setCustomAmount(e.target.value); setAmount(0); }}
-                                disabled={!connected}
-                                style={{
-                                    width: '100%',
-                                    padding: '12px',
-                                    borderRadius: '12px',
-                                    border: customAmount ? '2px solid var(--purple-accent)' : '2px solid rgba(255,255,255,0.1)',
-                                    background: 'rgba(0,0,0,0.2)',
-                                    color: '#fff',
-                                    outline: 'none',
-                                    fontSize: '16px',
-                                    opacity: connected ? 1 : 0.5
-                                }}
-                            />
-                        </div>
-
-                        {error && (
-                            <div className="swm-error" style={{ marginBottom: '16px' }}>
-                                {error}
-                            </div>
-                        )}
-
                         <button
-                            className="btn-primary"
-                            style={{
-                                width: '100%',
-                                padding: '14px',
-                                borderRadius: '12px',
-                                opacity: !connected || isLoading ? 0.6 : 1,
-                                cursor: !connected || isLoading ? 'not-allowed' : 'pointer'
-                            }}
-                            onClick={handleTip}
-                            disabled={!connected || isLoading}
+                            className="bsm-confirm-btn"
+                            onClick={handleConfirm}
+                            disabled={!isValid || !hasBalance}
                         >
-                            {isLoading ? "Signing Transaction..." : `Send ${customAmount || amount} $SAKURA`}
+                            {receiverAddress ? "Send Tip" : "Donate"}{" "}
+                            {amount ? `(${Number(amount.replace(/,/g, "")).toLocaleString()} $SAKURA)` : ""}
                         </button>
+                    </>
+                )}
+
+                {step === "processing" && (
+                    <div className="bsm-processing">
+                        <div className="bsm-spinner" />
+                        <h3>Sending...</h3>
+                        <p>Please confirm the transaction in your wallet.</p>
+                    </div>
+                )}
+
+                {step === "done" && (
+                    <div className="bsm-done">
+                        <div className="bsm-done-icon">✓</div>
+                        <h3>Thank you!</h3>
+                        <p className="bsm-done-amount">
+                            {receiverAddress
+                                ? `Your tip of ${Number(amount.replace(/,/g, "")).toLocaleString()} $SAKURA was sent!`
+                                : "Your donation was sent successfully."}
+                        </p>
+                        {txid && (
+                            <a
+                                href={`https://solscan.io/tx/${txid}`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="bsm-tx-link"
+                            >
+                                View on Solscan →
+                            </a>
+                        )}
+                        <button className="bsm-confirm-btn" onClick={onClose}>Done</button>
+                    </div>
+                )}
+
+                {step === "error" && (
+                    <div className="bsm-done">
+                        <div className="bsm-done-icon" style={{ background: "rgba(255,107,107,0.15)", color: "#ff6b6b" }}>✕</div>
+                        <h3>Something went wrong</h3>
+                        <p className="bsm-done-amount" style={{ color: "#ff6b6b" }}>{error}</p>
+                        <button className="bsm-confirm-btn" onClick={() => { setStep("amount"); setError(""); }}>Try Again</button>
                     </div>
                 )}
             </div>

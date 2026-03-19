@@ -19,6 +19,7 @@ function AnimeWatchInner() {
     const [error, setError] = useState<string | null>(null);
     const [nativePlaying, setNativePlaying] = useState(false);
     const [isNative] = useState(Capacitor.isNativePlatform());
+    const [playTriggered, setPlayTriggered] = useState(false);
 
     const currentEpisodeIndex = anime?.episodes.findIndex(e => e.id === episodeId) ?? -1;
     const currentEpisode = currentEpisodeIndex >= 0 ? anime?.episodes[currentEpisodeIndex] : null;
@@ -27,33 +28,40 @@ function AnimeWatchInner() {
         : null;
 
     useEffect(() => {
+        setSource(null);
+        setAnime(null);
+        setError(null);
+        setNativePlaying(false);
+        setPlayTriggered(false);
+        setLoading(true);
+    }, [episodeId]);
+
+    useEffect(() => {
+        let cancelled = false;
         async function load() {
             setLoading(true);
             setError(null);
             try {
-                if (isNative) {
-                    const animeData = await fetchAnimeInfo(id);
-                    if (animeData) setAnime(animeData);
-                } else {
-                    const [animeData, sourceData] = await Promise.all([
-                        fetchAnimeInfo(id),
-                        fetchEpisodeSources(episodeId)
-                    ]);
-                    if (animeData) setAnime(animeData);
-                    if (sourceData) {
-                        setSource(sourceData);
-                    } else {
-                        setError("Failed to extract video feeds for this episode.");
-                    }
+                const [animeData, sourceData] = await Promise.all([
+                    fetchAnimeInfo(id),
+                    fetchEpisodeSources(episodeId)
+                ]);
+                if (cancelled) return;
+                if (animeData) setAnime(animeData);
+                if (sourceData) {
+                    setSource(sourceData);
+                } else if (!isNative) {
+                    setError("Failed to extract video feeds for this episode.");
                 }
             } catch (e: any) {
-                setError(e.message || "Failed to load episode.");
+                if (!cancelled) setError(e.message || "Failed to load episode.");
             }
-            setLoading(false);
+            if (!cancelled) setLoading(false);
         }
         if (id && episodeId) {
             load();
         }
+        return () => { cancelled = true; };
     }, [id, episodeId, isNative]);
 
     const playNative = useCallback(async () => {
@@ -92,15 +100,31 @@ function AnimeWatchInner() {
                     nextEpisodeTitle: nextEp?.title || (nextEp ? `Episode ${nextEp.number}` : "")
                 });
             } else {
+                if (!source?.url) {
+                    setError("No stream URL available. Try again.");
+                    return;
+                }
                 result = await Anime.playEpisode({
-                    episodeId,
+                    streamUrl: source.url,
+                    referer: source.referer || '',
                     title,
+                    episodeId,
                     hasNext: !!nextEp,
-                    nextEpisodeTitle: nextEp?.title || (nextEp ? `Episode ${nextEp.number}` : "")
+                    nextEpisodeTitle: nextEp?.title || (nextEp ? `Episode ${nextEp.number}` : ""),
                 });
             }
 
             if (result.completed && nextEp) {
+                const nextTitle = nextEp.title || `Episode ${nextEp.number}`;
+                saveAnimeWatchEntry({
+                    animeId: id,
+                    episodeId: nextEp.id,
+                    animeTitle: anime.title,
+                    episodeTitle: nextTitle,
+                    episodeNumber: nextEp.number,
+                    image: anime.image,
+                    timestamp: Date.now()
+                });
                 router.push(`/anime/watch?id=${encodeURIComponent(id)}&ep=${encodeURIComponent(nextEp.id)}`);
                 return;
             }
@@ -110,13 +134,14 @@ function AnimeWatchInner() {
         } finally {
             setNativePlaying(false);
         }
-    }, [anime, episodeId, id, router]);
+    }, [anime, episodeId, id, router, source]);
 
     useEffect(() => {
-        if (isNative && anime && !error && !nativePlaying) {
+        if (isNative && anime && source && !error && !nativePlaying && !playTriggered) {
+            setPlayTriggered(true);
             playNative();
         }
-    }, [isNative, anime, episodeId]);
+    }, [isNative, anime, source, error, nativePlaying, playTriggered, playNative]);
 
     if (loading) {
         return (

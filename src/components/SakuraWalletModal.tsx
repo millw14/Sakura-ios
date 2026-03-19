@@ -4,11 +4,13 @@ import { createContext, useContext, useState, useCallback, useEffect, useRef } f
 import { useWallet } from "@solana/wallet-adapter-react";
 import { truncateAddress, getConnection, SAKURA_MINT, SOLANA_NETWORK } from "@/lib/solana";
 import { LAMPORTS_PER_SOL } from "@solana/web3.js";
-import { getAssociatedTokenAddress } from "@solana/spl-token";
-import { getSakuraSwapQuote, executeSakuraSwap } from "@/lib/swap";
 import { generateWallet, storeWalletSecurely, removeWalletSecurely } from "@/lib/wallet";
+import dynamic from "next/dynamic";
 import bs58 from "bs58";
 import { Keypair } from "@solana/web3.js";
+
+const BuySakuraModal = dynamic(() => import("@/components/BuySakuraModal"), { ssr: false });
+const TipModal = dynamic(() => import("@/components/TipModal"), { ssr: false });
 
 /* ─── Context ─── */
 interface SakuraWalletModalContextType {
@@ -39,15 +41,12 @@ export function SakuraWalletModalProvider({ children }: { children: React.ReactN
 
 /* ─── The Modal ─── */
 function SakuraWalletModal({ onClose }: { onClose: () => void }) {
-    const { wallets, select, connect, publicKey, disconnect, connected, signTransaction } = useWallet();
+    const { wallets, select, connect, publicKey, disconnect, connected } = useWallet();
     const [balance, setBalance] = useState<number | null>(null);
     const [sakuraBalance, setSakuraBalance] = useState<number | null>(null);
 
-    // Swap State
-    const [showSwap, setShowSwap] = useState(false);
-    const [swapAmount, setSwapAmount] = useState("0.1"); // Default to 0.1 SOL
-    const [isSwapping, setIsSwapping] = useState(false);
-    const [swapError, setSwapError] = useState<string | null>(null);
+    const [showBuySakura, setShowBuySakura] = useState(false);
+    const [showDonate, setShowDonate] = useState(false);
     const [copied, setCopied] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [isGenerating, setIsGenerating] = useState(false);
@@ -159,57 +158,6 @@ function SakuraWalletModal({ onClose }: { onClose: () => void }) {
         }
     }, [disconnect, onClose]);
 
-    const handleSwap = async () => {
-        if (!publicKey || !signTransaction) return;
-        setSwapError(null);
-        setIsSwapping(true);
-
-        try {
-            const amount = parseFloat(swapAmount);
-            if (isNaN(amount) || amount <= 0) {
-                throw new Error("Invalid swap amount entered.");
-            }
-
-            const currentBal = balance ?? 0;
-            if (amount > currentBal - 0.015) {
-                throw new Error("Insufficient SOL balance to swap. Please leave at least 0.015 SOL for network fees.");
-            }
-
-            const quote = await getSakuraSwapQuote(amount);
-            if (!quote) throw new Error("Could not fetch route");
-
-            const result = await executeSakuraSwap(quote, publicKey, signTransaction as any);
-
-            if (!result.success) {
-                throw new Error(result.error);
-            }
-
-            setShowSwap(false);
-            setSwapAmount("0.1"); // Reset
-            // Refresh balances
-            fetchBalances();
-            alert("Swap successful! Enjoy your $SAKURA 🌸");
-
-        } catch (error: any) {
-            console.error(error);
-            setSwapError(error.message);
-        } finally {
-            setIsSwapping(false);
-        }
-    };
-
-    const handleMaxSwapClick = () => {
-        if (balance && balance > 0.015) {
-            // max amount minus gas buffer
-            const max = balance - 0.015;
-            // Floor down to 4 decimals so it looks clean
-            setSwapAmount((Math.floor(max * 10000) / 10000).toString());
-        } else {
-            setSwapAmount("0");
-            setSwapError("Not enough SOL to swap safely.");
-        }
-    };
-
     const handleCopy = useCallback(() => {
         if (!publicKey) return;
         navigator.clipboard.writeText(publicKey.toBase58());
@@ -278,61 +226,42 @@ function SakuraWalletModal({ onClose }: { onClose: () => void }) {
                             {balanceLoading ? 'Refreshing...' : '↻ Refresh Balances'}
                         </button>
 
-                        {/* Swap $SAKURA Interface */}
-                        {(SOLANA_NETWORK as string) === 'mainnet-beta' && !showSwap && (
-                            <button
-                                className="btn-primary"
-                                style={{
-                                    marginTop: "16px",
-                                    width: "100%",
-                                    background: "linear-gradient(45deg, var(--sakura-pink), #ff9a9e)",
-                                    border: "none"
-                                }}
-                                onClick={() => setShowSwap(true)}
-                            >
-                                Swap to $SAKURA 🌸
-                            </button>
+                        {(SOLANA_NETWORK as string) === 'mainnet-beta' && (
+                            <>
+                                <button
+                                    className="bsm-buy-btn"
+                                    onClick={() => setShowBuySakura(true)}
+                                    style={{ marginTop: 16, width: '100%' }}
+                                >
+                                    <span className="bsm-buy-btn-icon">🌸</span>
+                                    Buy $SAKURA
+                                </button>
+                                <button
+                                    className="btn-secondary"
+                                    onClick={() => setShowDonate(true)}
+                                    style={{ marginTop: 8, width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}
+                                >
+                                    <span>🌸</span>
+                                    Support Sakura
+                                </button>
+                            </>
                         )}
 
-                        {showSwap && (
-                            <div className="swm-swap-container" style={{ marginTop: '16px', padding: '12px', background: 'rgba(0,0,0,0.2)', borderRadius: '12px', border: '1px solid rgba(255, 105, 180, 0.2)' }}>
-                                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
-                                    <span style={{ fontSize: '12px', color: 'rgba(255,255,255,0.7)' }}>Swap SOL to $SAKURA (Powered by Jupiter)</span>
-                                    <button onClick={() => { setShowSwap(false); setSwapError(null); }} style={{ background: 'none', border: 'none', color: '#fff', cursor: 'pointer', fontSize: '12px' }}>Cancel</button>
-                                </div>
-                                <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                                    <input
-                                        type="number"
-                                        value={swapAmount}
-                                        onChange={(e) => setSwapAmount(e.target.value)}
-                                        style={{ flex: 1, padding: '8px', borderRadius: '8px', background: 'rgba(0,0,0,0.3)', border: '1px solid var(--sakura-pink)', color: '#fff', outline: 'none' }}
-                                        placeholder="SOL Amount"
-                                        step="0.05"
-                                        min="0.01"
-                                    />
-                                    <button
-                                        onClick={handleMaxSwapClick}
-                                        style={{ background: 'rgba(255, 105, 180, 0.2)', color: 'var(--sakura-pink)', border: '1px solid var(--sakura-pink)', borderRadius: '4px', padding: '4px 8px', fontSize: '12px', cursor: 'pointer', fontWeight: 'bold' }}
-                                    >
-                                        MAX
-                                    </button>
-                                    <span style={{ color: 'var(--sakura-pink)', fontSize: '14px', fontWeight: 'bold' }}>SOL</span>
-                                </div>
-                                {swapError && <div style={{ color: '#ff6b6b', fontSize: '12px', marginTop: '8px' }}>{swapError}</div>}
-                                <button
-                                    className="btn-primary"
-                                    onClick={handleSwap}
-                                    disabled={isSwapping || !swapAmount || parseFloat(swapAmount) <= 0}
-                                    style={{
-                                        width: '100%',
-                                        marginTop: '12px',
-                                        background: isSwapping ? 'rgba(255,255,255,0.1)' : 'linear-gradient(45deg, var(--sakura-pink), #ff9a9e)',
-                                        border: 'none',
-                                    }}
-                                >
-                                    {isSwapping ? "Swapping..." : "Confirm Swap"}
-                                </button>
-                            </div>
+                        {showDonate && (
+                            <TipModal
+                                onClose={() => setShowDonate(false)}
+                                header="Support Sakura"
+                                subtitle="Donate $SAKURA to the Sakura treasury"
+                                onComplete={() => fetchBalances()}
+                            />
+                        )}
+
+                        {showBuySakura && (
+                            <BuySakuraModal
+                                onClose={() => setShowBuySakura(false)}
+                                solBalance={balance ?? 0}
+                                onComplete={() => fetchBalances()}
+                            />
                         )}
 
                         <button className="swm-disconnect-btn" onClick={handleDisconnect}>

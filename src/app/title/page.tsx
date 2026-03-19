@@ -8,6 +8,10 @@ import { getSource } from "@/lib/sources";
 import { type Manga, type Chapter } from "@/lib/sources/types";
 import { useWallet } from "@solana/wallet-adapter-react";
 import { useSakuraWalletModal } from "@/components/SakuraWalletModal";
+import dynamic from "next/dynamic";
+
+const TipModal = dynamic(() => import("@/components/TipModal"), { ssr: false });
+import { getCreatorProfile } from "@/lib/creator";
 import { getFavorites, addFavorite, removeFavorite } from "@/lib/supabase";
 import { getLocal, setLocal, STORAGE_KEYS, setChapterProgress, getChapterProgress, getReadChapters, getAllChapterProgress, READ_THRESHOLD } from "@/lib/storage";
 import { useDownloads, downloadManager } from "@/lib/downloads";
@@ -89,6 +93,8 @@ function SeriesContent() {
     const [error, setError] = useState<string | null>(null);
     const [showSummary, setShowSummary] = useState(false);
     const [showBatchDownload, setShowBatchDownload] = useState(false);
+    const [showTipModal, setShowTipModal] = useState(false);
+    const [creatorWallet, setCreatorWallet] = useState<string | null>(null);
     const [isBatchQueuing, setIsBatchQueuing] = useState(false);
     const downloads = useDownloads();
     const [sortOrder, setSortOrder] = useState<"asc" | "desc">("desc");
@@ -119,6 +125,15 @@ function SeriesContent() {
 
         loadData();
     }, [id, sourceStr]);
+
+    useEffect(() => {
+        if (!series?.authorId || sourceStr !== "mangadex") return;
+        getCreatorProfile(series.authorId).then((profile) => {
+            if (profile?.is_verified && profile.wallet_address) {
+                setCreatorWallet(profile.wallet_address);
+            }
+        });
+    }, [series?.authorId, sourceStr]);
 
     // Load read chapters + progress from local storage (and refresh on window focus)
     useEffect(() => {
@@ -213,6 +228,16 @@ function SeriesContent() {
 
     return (
         <main className="main-content">
+            {/* Tip Modal */}
+            {showTipModal && (
+                <TipModal
+                    onClose={() => setShowTipModal(false)}
+                    header={creatorWallet ? "Tip Creator" : "Support Sakura"}
+                    subtitle={creatorWallet ? "Send $SAKURA directly to this creator" : "Donate $SAKURA to the Sakura treasury"}
+                    receiverAddress={creatorWallet || undefined}
+                />
+            )}
+
             {/* Summary Modal */}
             {showSummary && (
                 <SummaryModal
@@ -310,6 +335,14 @@ function SeriesContent() {
                                 </Link>
                             )}
                             <FavoriteButton manga={series} />
+                            <button
+                                className="btn-secondary"
+                                onClick={() => setShowTipModal(true)}
+                                style={{ display: "flex", alignItems: "center", gap: 6 }}
+                            >
+                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z" /></svg>
+                                Tip Creator
+                            </button>
                             <Link href="/pass" className="btn-secondary">
                                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect width="20" height="14" x="2" y="5" rx="2" /><line x1="2" x2="22" y1="10" y2="10" /></svg> 週間パス — Get Pass
                             </Link>

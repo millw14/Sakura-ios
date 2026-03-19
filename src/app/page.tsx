@@ -113,6 +113,7 @@ export default function Home() {
                     genres={series.tags.slice(0, 3)}
                     follows={series.follows}
                     rating={series.rating}
+                    source="mangadex"
                   />
                 ))}
               </div>
@@ -153,6 +154,7 @@ export default function Home() {
                     genres={series.tags.slice(0, 3)}
                     follows={series.follows}
                     rating={series.rating}
+                    source="mangadex"
                   />
                 ))}
               </div>
@@ -162,6 +164,47 @@ export default function Home() {
               <Link href="/manga" className="btn-secondary">
                 全てのマンガを見る — View All Manga →
               </Link>
+            </div>
+          </section>
+        )}
+
+        {/* Create on Sakura CTA */}
+        {!showSearch && (
+          <section style={{
+            margin: "40px 16px 0",
+            borderRadius: 20,
+            overflow: "hidden",
+            background: "linear-gradient(160deg, rgba(255,183,197,0.1) 0%, rgba(138,43,226,0.12) 50%, rgba(10,10,20,0.95) 100%)",
+            border: "1px solid rgba(255,255,255,0.08)",
+          }}>
+            <div style={{ height: 3, background: "linear-gradient(90deg, var(--sakura-pink), var(--purple-accent), var(--sakura-pink))" }} />
+            <div style={{ padding: "28px 24px", textAlign: "center" }}>
+              <div style={{ fontSize: 32, marginBottom: 12 }}>🎨</div>
+              <h2 style={{ fontSize: "1.4rem", margin: "0 0 8px", fontWeight: 800 }}>Create on Sakura</h2>
+              <p style={{ color: "var(--text-secondary)", fontSize: "0.9rem", lineHeight: 1.6, maxWidth: 420, margin: "0 auto 20px" }}>
+                Artists and animators — publish your work on Sakura and earn a share of revenue. Join our growing creator community.
+              </p>
+              <a
+                href={`mailto:sakuramanga162@gmail.com?subject=${encodeURIComponent("Creator Application — Sakura")}&body=${encodeURIComponent("Hi Sakura team,\n\nI'd like to apply as a creator on Sakura.\n\nName: \nPortfolio / Social Links: \nType (Artist / Animator / Writer): \nBrief Description of Work: \n\nThank you!")}`}
+                className="btn-primary"
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 8,
+                  padding: "12px 28px",
+                  borderRadius: 14,
+                  fontWeight: 700,
+                  textDecoration: "none",
+                  background: "linear-gradient(90deg, var(--sakura-pink), var(--purple-accent))",
+                  boxShadow: "0 4px 20px rgba(138,43,226,0.3)",
+                }}
+              >
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>
+                Apply Now
+              </a>
+              <p style={{ color: "var(--text-muted)", fontSize: "0.75rem", marginTop: 14 }}>
+                sakuramanga162@gmail.com
+              </p>
             </div>
           </section>
         )}

@@ -1,6 +1,12 @@
 import { fetchJikanSearch, fetchJikanTrending, fetchJikanInfo } from "./jikan";
-import { searchHiAnime, getHiAnimeEpisodes, getHiAnimeServers, getHiAnimeSources } from "./sources/hianime";
-import { extractMegaCloudSources } from "./sources/megacloud";
+import {
+    searchAnimeSource,
+    getAnimeSourceEpisodes,
+    getStreamingSources,
+    isConfigured as isSourceConfigured,
+    getLastConsumetError,
+} from "./sources/gogoanime";
+import { PSYOP_SEARCH_RESULT, matchesPsyopQuery } from "./psyopAnime";
 
 export interface AnimeResult {
     id: string;
@@ -27,6 +33,7 @@ export interface AnimeInfo extends AnimeResult {
 export interface StreamingSource {
     url: string;
     isM3U8: boolean;
+    referer?: string;
     tracks?: { file: string; label?: string; kind?: string }[];
     intro?: { start: number; end: number };
     outro?: { start: number; end: number };
@@ -34,12 +41,12 @@ export interface StreamingSource {
 
 /* ─── Cache Helpers ─── */
 
-const CACHE_PREFIX = "sakura_anime_cache_";
+const CACHE_PREFIX = "sakura_anime_v3_";
 const TTL_SEARCH = 30 * 60 * 1000;       // 30 min
 const TTL_TRENDING = 2 * 60 * 60 * 1000; // 2 hours
 const TTL_INFO = 24 * 60 * 60 * 1000;    // 24 hours
 const TTL_EPISODES = 6 * 60 * 60 * 1000; // 6 hours
-const TTL_HI_MAP = 7 * 24 * 60 * 60 * 1000; // 7 days (MAL→HiAnime ID mapping rarely changes)
+const TTL_SOURCE_MAP = 7 * 24 * 60 * 60 * 1000; // 7 days
 
 function cacheGet<T>(key: string): T | null {
     if (typeof window === 'undefined') return null;
@@ -68,7 +75,7 @@ export async function searchAnime(query: string): Promise<AnimeResult[]> {
     if (cached) return cached;
 
     const results = await fetchJikanSearch(query);
-    const mapped = results.map(r => ({
+    const mapped: AnimeResult[] = results.map(r => ({
         id: String(r.mal_id),
         title: r.title_english || r.title,
         image: r.images?.webp?.large_image_url || r.images?.webp?.image_url,
@@ -76,6 +83,11 @@ export async function searchAnime(query: string): Promise<AnimeResult[]> {
         releaseDate: r.year ? String(r.year) : undefined,
         score: r.score
     }));
+
+    if (matchesPsyopQuery(query)) {
+        mapped.unshift(PSYOP_SEARCH_RESULT);
+    }
+
     cacheSet(cacheKey, mapped, TTL_SEARCH);
     return mapped;
 }
@@ -97,48 +109,125 @@ export async function fetchAiringAnime(): Promise<AnimeResult[]> {
     return mapped;
 }
 
-export async function fetchAnimeInfo(id: string): Promise<AnimeInfo | null> {
-    const cacheKey = `info_${id}`;
-    const cached = cacheGet<AnimeInfo>(cacheKey);
+function simplifyTitle(title: string): string[] {
+    const variants: string[] = [title];
+
+    const cleaned = title
+        .replace(/\s*(2nd|3rd|4th|5th|\d+th)\s+Season/i, '')
+        .replace(/\s*Season\s*\d+/i, '')
+        .replace(/\s*Part\s*\d+/i, '')
+        .replace(/\s*Cour\s*\d+/i, '')
+        .replace(/\s*\d+(?:st|nd|rd|th)\s+Cour/i, '')
+        .replace(/\s*Movie\s*\d*/i, '')
+        .replace(/\s*OVA\s*\d*/i, '')
+        .replace(/\s*Specials?\s*$/i, '')
+        .replace(/\s*\(TV\)/i, '')
+        .replace(/\s*:\s*[^:]+$/, '')
+        .trim();
+
+    if (cleaned !== title && cleaned.length > 2) {
+        variants.push(cleaned);
+    }
+
+    const colonIdx = title.indexOf(':');
+    if (colonIdx > 2) {
+        variants.push(title.substring(0, colonIdx).trim());
+    }
+
+    return [...new Set(variants)];
+}
+
+async function resolveSourceId(romajiTitle: string, engTitle: string | null, malId: string): Promise<string> {
+    const mapKey = `srcmap_${malId}`;
+    const cached = cacheGet<string>(mapKey);
     if (cached) return cached;
 
-    const jikanData = await fetchJikanInfo(id);
-    if (!jikanData) return null;
+    if (!isSourceConfigured()) {
+        console.warn('[resolveSourceId] Source not configured — CONSUMET_URL missing');
+        return '';
+    }
 
-    const romajiTitle = jikanData.title;
-    const engTitle = jikanData.title_english;
+    const queries = [
+        ...simplifyTitle(romajiTitle),
+        ...(engTitle ? simplifyTitle(engTitle) : []),
+    ];
+    const seen = new Set<string>();
 
-    // Check cached MAL→HiAnime ID mapping first
-    const mapKey = `himap_${id}`;
-    let hiAnimeId = cacheGet<string>(mapKey) || '';
+    let results: { id: string; title: string }[] = [];
+    let usedQuery = '';
 
-    if (!hiAnimeId) {
-        let hiSearch = await searchHiAnime(romajiTitle);
-        if ((!hiSearch || hiSearch.length === 0) && engTitle) {
-            hiSearch = await searchHiAnime(engTitle);
-        }
+    for (const q of queries) {
+        const key = q.toLowerCase();
+        if (seen.has(key)) continue;
+        seen.add(key);
 
-        if (hiSearch && hiSearch.length > 0) {
-            const findMatch = [...hiSearch].find((p: any) =>
-                p.title.toLowerCase() === romajiTitle.toLowerCase() ||
-                (engTitle && p.title.toLowerCase() === engTitle.toLowerCase())
-            );
-            hiAnimeId = findMatch ? findMatch.id : hiSearch[0].id;
-            cacheSet(mapKey, hiAnimeId, TTL_HI_MAP);
+        results = await searchAnimeSource(q);
+        if (results && results.length > 0) {
+            usedQuery = q;
+            break;
         }
     }
 
+    if (!results || results.length === 0) {
+        const err = getLastConsumetError();
+        console.warn(`[resolveSourceId] No source results for "${romajiTitle}" / "${engTitle}" — ${err}`);
+        _lastDiag += ` → search FAIL(tried ${seen.size} queries): ${err || 'no results'}`;
+        return '';
+    }
+
+    const lowerRomaji = romajiTitle.toLowerCase();
+    const lowerEng = engTitle?.toLowerCase() || '';
+    const match = results.find((p) => {
+        const lt = p.title.toLowerCase();
+        return lt === lowerRomaji || lt === lowerEng;
+    });
+    const sourceId = match ? match.id : results[0].id;
+    console.log(`[resolveSourceId] Resolved "${romajiTitle}" (query="${usedQuery}") → ${sourceId}`);
+    _lastDiag += ` → src="${sourceId}" (via "${usedQuery}")`;
+    cacheSet(mapKey, sourceId, TTL_SOURCE_MAP);
+    return sourceId;
+}
+
+let _lastDiag = '';
+export function getLastDiagnostic(): string { return _lastDiag; }
+
+export async function fetchAnimeInfo(id: string): Promise<AnimeInfo | null> {
+    _lastDiag = '';
+    const cacheKey = `info_${id}`;
+    const cached = cacheGet<AnimeInfo>(cacheKey);
+    if (cached) {
+        _lastDiag = `[cache hit] eps=${cached.episodes?.length}`;
+        return cached;
+    }
+
+    const jikanData = await fetchJikanInfo(id);
+    if (!jikanData) {
+        _lastDiag = '[FAIL] Jikan returned null';
+        return null;
+    }
+
+    const romajiTitle = jikanData.title;
+    const engTitle = jikanData.title_english;
+    _lastDiag = `Jikan OK: "${romajiTitle}" / "${engTitle}"`;
+
+    const sourceId = await resolveSourceId(romajiTitle, engTitle, id);
+    _lastDiag += ` → sourceId="${sourceId || '(empty)'}"`;
+
     let episodes: AnimeInfo['episodes'] = [];
 
-    if (hiAnimeId) {
-        const epKey = `episodes_${hiAnimeId}`;
+    if (sourceId) {
+        const epKey = `episodes_${sourceId}`;
         const cachedEps = cacheGet<AnimeInfo['episodes']>(epKey);
         if (cachedEps) {
             episodes = cachedEps;
+            _lastDiag += ` → eps(cached)=${episodes.length}`;
         } else {
-            episodes = await getHiAnimeEpisodes(hiAnimeId);
+            episodes = await getAnimeSourceEpisodes(sourceId);
+            _lastDiag += ` → eps(fetched)=${episodes.length}`;
             if (episodes.length > 0) cacheSet(epKey, episodes, TTL_EPISODES);
         }
+    } else {
+        _lastDiag += ' → SKIP episodes (no sourceId)';
     }
 
     const info: AnimeInfo = {
@@ -152,7 +241,9 @@ export async function fetchAnimeInfo(id: string): Promise<AnimeInfo | null> {
         score: jikanData.score,
         episodes
     };
-    cacheSet(cacheKey, info, TTL_INFO);
+    if (episodes.length > 0) {
+        cacheSet(cacheKey, info, TTL_INFO);
+    }
     return info;
 }
 
@@ -169,27 +260,12 @@ export async function refreshAnimeInfo(id: string): Promise<AnimeInfo | null> {
     const romajiTitle = jikanData.title;
     const engTitle = jikanData.title_english;
 
-    let hiAnimeId = cacheGet<string>(`himap_${id}`) || '';
-
-    if (!hiAnimeId) {
-        let hiSearch = await searchHiAnime(romajiTitle);
-        if ((!hiSearch || hiSearch.length === 0) && engTitle) {
-            hiSearch = await searchHiAnime(engTitle);
-        }
-        if (hiSearch && hiSearch.length > 0) {
-            const findMatch = [...hiSearch].find((p: any) =>
-                p.title.toLowerCase() === romajiTitle.toLowerCase() ||
-                (engTitle && p.title.toLowerCase() === engTitle.toLowerCase())
-            );
-            hiAnimeId = findMatch ? findMatch.id : hiSearch[0].id;
-            cacheSet(`himap_${id}`, hiAnimeId, TTL_HI_MAP);
-        }
-    }
+    const sourceId = await resolveSourceId(romajiTitle, engTitle, id);
 
     let episodes: AnimeInfo['episodes'] = [];
-    if (hiAnimeId) {
-        episodes = await getHiAnimeEpisodes(hiAnimeId);
-        if (episodes.length > 0) cacheSet(`episodes_${hiAnimeId}`, episodes, TTL_EPISODES);
+    if (sourceId) {
+        episodes = await getAnimeSourceEpisodes(sourceId);
+        if (episodes.length > 0) cacheSet(`episodes_${sourceId}`, episodes, TTL_EPISODES);
     }
 
     const info: AnimeInfo = {
@@ -203,38 +279,32 @@ export async function refreshAnimeInfo(id: string): Promise<AnimeInfo | null> {
         score: jikanData.score,
         episodes
     };
-    cacheSet(`info_${id}`, info, TTL_INFO);
+    if (episodes.length > 0) {
+        cacheSet(`info_${id}`, info, TTL_INFO);
+    }
     return info;
 }
 
-/**
- * Resolves an Episode ID into a decrypted .m3u8 streaming source.
- * 1. Gets the Megacloud embed URL from HiAnime
- * 2. Passes it through our MegaCloud AES decryptor
- * 3. Returns the raw .m3u8 URL for direct HLS.js playback
- */
 export async function fetchEpisodeSources(episodeId: string): Promise<StreamingSource | null> {
     try {
-        // Get server list for this episode
-        const servers = await getHiAnimeServers(episodeId);
-        const subServer = servers.find(s => s.type === 'sub') || servers[0];
-        if (!subServer) return null;
-
-        // Get the Megacloud embed URL
-        const iframeSource = await getHiAnimeSources(subServer.serverId);
-        if (!iframeSource || !iframeSource.url) return null;
-
-        console.log('[Anime] Got embed URL:', iframeSource.url);
-
-        // Instead of trying to natively extract M3U8 (which fails Cloudflare challenge on Dalvik clients),
-        // we return the embed URL directly so the mobile frontend can mount it natively in a Browser overlay.
-        return {
-            url: iframeSource.url,
-            isM3U8: false
-        };
+        const result = await getStreamingSources(episodeId);
+        if (result && result.sources.length > 0) {
+            const qualityPriority = ['1080p', '720p', '480p', 'default'];
+            let best = result.sources[0];
+            for (const q of qualityPriority) {
+                const match = result.sources.find(s => s.quality === q);
+                if (match) { best = match; break; }
+            }
+            return {
+                url: best.url,
+                isM3U8: best.isM3U8,
+                referer: result.referer,
+                tracks: result.subtitles.map(s => ({ file: s.file, label: s.label })),
+            };
+        }
     } catch (e) {
-        console.error('[Anime] fetchEpisodeSources failed:', e);
-        return null;
+        console.error('[Anime] Consumet stream extraction failed:', e);
     }
-}
 
+    return null;
+}

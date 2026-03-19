@@ -31,6 +31,15 @@ export const PERCOLATOR_INSURANCE_VAULT = new PublicKey(
 export const INSURANCE_SPLIT = 50;
 export const BURN_SPLIT = 50;
 
+// ============ Sakura Treasury ============
+// PDA program for tips, donations, and trading fees. Update after deploy.
+export const SAKURA_TREASURY_PROGRAM_ID = new PublicKey(
+    "5GBAvcfjpj5XU9Y1wkubdvear2VHk6r55Bf1WjehVuV6"
+);
+export const SAKURA_TREASURY_ADMIN = new PublicKey(
+    "5NcWtvtQ48QJcizEs9i8H7Ef3YmtmybnSkPQxA2fxFiF"
+);
+
 // ============ Jupiter API Config ============
 // Free key from https://portal.jup.ag — required for swap functionality
 export const JUPITER_API_KEY = "36bac653-fbd8-481d-aa0d-2c91530f8ae3";

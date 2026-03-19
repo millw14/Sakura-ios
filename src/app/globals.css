@@ -3469,6 +3469,13 @@ body {
 
 .pass-badge-lg {
   font-size: 20px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.pass-badge-lg svg {
+  width: 20px;
+  height: 20px;
 }
 
 .profile-hero-wallet {
@@ -3505,8 +3512,20 @@ body {
   border-radius: var(--radius-md);
 }
 
-.level-emoji {
+.level-emoji,
+.level-icon {
   font-size: 22px;
+}
+.level-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+}
+.level-icon svg {
+  width: 22px;
+  height: 22px;
 }
 
 .level-name {
@@ -3563,8 +3582,21 @@ body {
   border-color: rgba(255, 183, 197, 0.2);
 }
 
-.stat-emoji {
+.stat-emoji,
+.stat-icon {
   font-size: 24px;
+}
+.stat-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  color: var(--sakura-pink);
+}
+.stat-icon svg {
+  width: 24px;
+  height: 24px;
 }
 
 .stat-value {
@@ -3652,8 +3684,31 @@ body {
   opacity: 0.45;
 }
 
-.achievement-emoji {
+.achievement-emoji,
+.achievement-icon {
   font-size: 28px;
+}
+.achievement-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  color: var(--sakura-pink);
+}
+.achievement-icon svg {
+  width: 28px;
+  height: 28px;
+}
+.achievement-lock {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0.5;
+}
+.achievement-lock svg {
+  width: 16px;
+  height: 16px;
 }
 
 .achievement-name {
@@ -5571,4 +5626,743 @@ body {
   }
   .ftw-icon { font-size: 18px; }
   .ftw-pnl { font-size: 16px; }
+}
+
+/* ═══════════════════════════════════════════
+   Swap Confirmation Toast
+   ═══════════════════════════════════════════ */
+
+.swap-toast-container {
+  position: fixed;
+  top: 52px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 9999;
+  animation: swap-toast-enter 0.4s cubic-bezier(0.2, 0.9, 0.3, 1.2);
+  pointer-events: auto;
+}
+.swap-toast-container.exiting {
+  animation: swap-toast-exit 0.35s ease-in forwards;
+}
+
+.swap-toast {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 14px 16px;
+  min-width: 320px;
+  max-width: 420px;
+  background: rgba(17, 14, 29, 0.92);
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+  border: 1px solid rgba(255, 107, 157, 0.25);
+  border-radius: var(--radius-md);
+  box-shadow:
+    0 8px 32px rgba(0, 0, 0, 0.5),
+    0 0 0 1px rgba(255, 107, 157, 0.08),
+    inset 0 1px 0 rgba(255, 255, 255, 0.04);
+  cursor: pointer;
+  user-select: none;
+}
+
+.swap-toast-icon {
+  flex-shrink: 0;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.swap-toast-icon.pending {
+  background: rgba(255, 107, 157, 0.12);
+  color: var(--sakura-pink);
+}
+.swap-toast-icon.success {
+  background: rgba(14, 203, 129, 0.12);
+  color: #0ecb81;
+  animation: swap-icon-pop 0.35s cubic-bezier(0.2, 0.9, 0.3, 1.3);
+}
+.swap-toast-icon.error {
+  background: rgba(246, 70, 93, 0.12);
+  color: #f6465d;
+}
+
+.swap-toast-spinner {
+  width: 18px;
+  height: 18px;
+  border: 2.5px solid rgba(255, 107, 157, 0.2);
+  border-top-color: var(--sakura-pink);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+.swap-toast-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.swap-toast-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+  line-height: 1.3;
+}
+
+.swap-toast-amounts {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 4px;
+  font-size: 13px;
+  font-weight: 500;
+}
+.swap-toast-out {
+  color: var(--text-secondary);
+}
+.swap-toast-arrow {
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+.swap-toast-in {
+  color: var(--sakura-pink);
+  font-weight: 600;
+}
+
+.swap-toast-tx {
+  display: inline-block;
+  margin-top: 4px;
+  font-size: 11px;
+  font-family: 'SF Mono', 'Fira Code', monospace;
+  color: var(--purple-accent);
+  text-decoration: none;
+  opacity: 0.85;
+  transition: opacity 0.15s;
+}
+.swap-toast-tx:hover {
+  opacity: 1;
+  text-decoration: underline;
+}
+
+.swap-toast-sub {
+  margin-top: 3px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.swap-toast-error-msg {
+  margin-top: 3px;
+  font-size: 12px;
+  color: #f6465d;
+  opacity: 0.85;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.swap-toast-close {
+  flex-shrink: 0;
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font-size: 18px;
+  cursor: pointer;
+  padding: 0 2px;
+  line-height: 1;
+  transition: color 0.15s;
+}
+.swap-toast-close:hover { color: var(--text-primary); }
+
+@keyframes swap-toast-enter {
+  from {
+    opacity: 0;
+    transform: translateX(-50%) translateY(-20px) scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0) scale(1);
+  }
+}
+@keyframes swap-toast-exit {
+  from {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0) scale(1);
+  }
+  to {
+    opacity: 0;
+    transform: translateX(-50%) translateY(-16px) scale(0.96);
+  }
+}
+@keyframes swap-icon-pop {
+  0% { transform: scale(0.5); opacity: 0; }
+  60% { transform: scale(1.15); }
+  100% { transform: scale(1); opacity: 1; }
+}
+
+/* ═══════════════════════════════════════════
+   Fiat On-Ramp Modal (Buy with Card)
+   ═══════════════════════════════════════════ */
+
+/* ─── Fiat On-Ramp Modal ─── */
+.fiat-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 2000;
+  background: rgba(0, 0, 0, 0.7);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  animation: fade-in 0.2s ease-out;
+}
+
+.fiat-modal {
+  position: relative;
+  width: 100%;
+  max-width: 400px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-card), var(--shadow-sakura);
+  overflow: hidden;
+  padding: 24px;
+}
+
+.fiat-modal-widget {
+  max-width: 440px;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  max-height: 90vh;
+}
+
+.fiat-close {
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 50%;
+  width: 30px;
+  height: 30px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted);
+  font-size: 14px;
+  cursor: pointer;
+  transition: all 0.15s;
+  flex-shrink: 0;
+}
+.fiat-close:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--text-primary);
+}
+
+/* Header bar for iframe modal */
+.fiat-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 16px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+.fiat-header-left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+/* Transak logo in header */
+.fiat-header-logo-wrap {
+  width: 38px;
+  height: 38px;
+  border-radius: 10px;
+  background: linear-gradient(135deg, rgba(56, 136, 255, 0.15), rgba(56, 136, 255, 0.05));
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  box-shadow: 0 0 12px rgba(56, 136, 255, 0.2);
+}
+.fiat-header-logo {
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  object-fit: contain;
+}
+.fiat-header h3 {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin: 0;
+  line-height: 1.3;
+}
+.fiat-header p {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin: 0;
+}
+
+/* Iframe */
+.fiat-iframe {
+  width: 100%;
+  height: 560px;
+  border: none;
+  flex: 1;
+  min-height: 400px;
+  transition: opacity 0.3s;
+}
+
+/* Loading state */
+.fiat-loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 60px 20px;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+.fiat-loading-spinner {
+  width: 28px;
+  height: 28px;
+  border: 3px solid rgba(255, 107, 157, 0.2);
+  border-top-color: var(--sakura-pink);
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+}
+
+/* Success banner */
+.fiat-success-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 16px;
+  background: rgba(76, 175, 80, 0.12);
+  border-top: 1px solid rgba(76, 175, 80, 0.25);
+  font-size: 12px;
+  color: #81c784;
+}
+.fiat-success-banner button {
+  background: rgba(76, 175, 80, 0.2);
+  border: 1px solid rgba(76, 175, 80, 0.3);
+  border-radius: 6px;
+  padding: 6px 12px;
+  color: #81c784;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.15s;
+}
+.fiat-success-banner button:hover {
+  background: rgba(76, 175, 80, 0.3);
+}
+
+/* Footer */
+.fiat-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 16px;
+  border-top: 1px solid rgba(255, 255, 255, 0.04);
+  font-size: 10px;
+  color: var(--text-muted);
+}
+.fiat-footer-secure {
+  font-weight: 600;
+}
+
+/* Setup needed state */
+.fiat-setup-needed {
+  text-align: center;
+  padding: 10px 0;
+}
+/* Transak logo in setup screen */
+.fiat-logo-wrapper {
+  width: 64px;
+  height: 64px;
+  border-radius: 16px;
+  background: linear-gradient(135deg, rgba(56, 136, 255, 0.18), rgba(56, 136, 255, 0.06));
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0 auto 16px;
+  box-shadow: 0 4px 20px rgba(56, 136, 255, 0.25), 0 0 0 1px rgba(56, 136, 255, 0.1);
+}
+.fiat-logo-img {
+  width: 44px;
+  height: 44px;
+  border-radius: 10px;
+  object-fit: contain;
+}
+.fiat-setup-needed h3 {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin: 0 0 8px;
+}
+.fiat-setup-needed p {
+  font-size: 13px;
+  color: var(--text-secondary);
+  margin: 0 0 12px;
+  line-height: 1.5;
+}
+.fiat-code-block {
+  background: rgba(0, 0, 0, 0.3);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 8px;
+  padding: 10px 14px;
+  font-family: 'SF Mono', 'Fira Code', monospace;
+  font-size: 12px;
+  color: var(--sakura-pink);
+  margin-bottom: 12px;
+  word-break: break-all;
+}
+.fiat-setup-hint {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+.fiat-setup-hint a {
+  color: var(--sakura-pink);
+  text-decoration: none;
+}
+.fiat-setup-hint a:hover {
+  text-decoration: underline;
+}
+
+/* ═══ Buy $SAKURA Modal ═══ */
+
+.bsm-buy-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 14px 24px;
+  background: linear-gradient(135deg, #e91e7b, #ff6b9d);
+  border: none;
+  border-radius: 14px;
+  color: white;
+  font-size: 15px;
+  font-weight: 700;
+  cursor: pointer;
+  letter-spacing: 0.3px;
+  transition: all 0.2s;
+  box-shadow: 0 4px 20px rgba(233, 30, 123, 0.3);
+}
+.bsm-buy-btn:hover { transform: translateY(-1px); box-shadow: 0 6px 28px rgba(233, 30, 123, 0.45); }
+.bsm-buy-btn-icon { font-size: 18px; }
+
+.buy-sakura-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.7);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 10001;
+  padding: 20px;
+  animation: bsm-fade-in 0.2s ease;
+}
+
+.buy-sakura-modal {
+  background: linear-gradient(165deg, #1a1a2e 0%, #16162a 50%, #1a1028 100%);
+  border: 1px solid rgba(233, 30, 123, 0.2);
+  border-radius: 24px;
+  padding: 28px;
+  width: 100%;
+  max-width: 420px;
+  max-height: 90vh;
+  overflow-y: auto;
+  position: relative;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5), 0 0 40px rgba(233, 30, 123, 0.08);
+  animation: bsm-slide-up 0.3s ease;
+}
+
+.bsm-close {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  background: rgba(255,255,255,0.06);
+  border: 1px solid rgba(255,255,255,0.08);
+  color: rgba(255,255,255,0.5);
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  cursor: pointer;
+  font-size: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s;
+  z-index: 2;
+}
+.bsm-close:hover { background: rgba(255,255,255,0.12); color: white; }
+
+.bsm-header {
+  text-align: center;
+  margin-bottom: 24px;
+}
+.bsm-icon {
+  font-size: 40px;
+  margin-bottom: 8px;
+  filter: drop-shadow(0 0 10px rgba(233, 30, 123, 0.4));
+}
+.bsm-header h2 {
+  color: white;
+  font-size: 22px;
+  font-weight: 700;
+  margin: 0 0 6px;
+}
+.bsm-subtitle {
+  color: rgba(255,255,255,0.5);
+  font-size: 13px;
+  margin: 0;
+}
+
+.bsm-input-section {
+  margin-bottom: 16px;
+}
+.bsm-label {
+  display: block;
+  color: rgba(255,255,255,0.6);
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 8px;
+}
+.bsm-input-row {
+  display: flex;
+  align-items: center;
+  background: rgba(0, 0, 0, 0.3);
+  border: 1px solid rgba(233, 30, 123, 0.25);
+  border-radius: 14px;
+  padding: 4px;
+  transition: border-color 0.2s;
+}
+.bsm-input-row:focus-within {
+  border-color: rgba(233, 30, 123, 0.6);
+  box-shadow: 0 0 0 3px rgba(233, 30, 123, 0.1);
+}
+.bsm-input-icon {
+  padding: 8px 12px;
+  color: var(--sakura-pink);
+  font-size: 18px;
+  font-weight: 700;
+}
+.bsm-input {
+  flex: 1;
+  background: transparent;
+  border: none;
+  outline: none;
+  color: white;
+  font-size: 20px;
+  font-weight: 600;
+  padding: 10px 4px;
+  min-width: 0;
+}
+.bsm-input::placeholder { color: rgba(255,255,255,0.2); }
+.bsm-input::-webkit-outer-spin-button,
+.bsm-input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+
+.bsm-max-btn {
+  padding: 6px 12px;
+  background: rgba(233, 30, 123, 0.15);
+  border: 1px solid rgba(233, 30, 123, 0.4);
+  border-radius: 8px;
+  color: var(--sakura-pink);
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+  margin-right: 4px;
+  transition: all 0.2s;
+}
+.bsm-max-btn:hover { background: rgba(233, 30, 123, 0.25); }
+
+.bsm-balance-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 8px;
+  padding: 0 4px;
+  font-size: 12px;
+  color: rgba(255,255,255,0.4);
+}
+.bsm-estimate {
+  color: var(--sakura-pink);
+  font-weight: 600;
+}
+
+.bsm-error {
+  background: rgba(255, 107, 107, 0.1);
+  border: 1px solid rgba(255, 107, 107, 0.2);
+  border-radius: 10px;
+  padding: 10px 14px;
+  color: #ff6b6b;
+  font-size: 13px;
+  margin-bottom: 12px;
+}
+
+.bsm-presets {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 8px;
+  margin-bottom: 20px;
+}
+.bsm-preset {
+  padding: 10px;
+  background: rgba(255,255,255,0.04);
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 10px;
+  color: rgba(255,255,255,0.7);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+  text-align: center;
+}
+.bsm-preset:hover { background: rgba(233, 30, 123, 0.1); border-color: rgba(233, 30, 123, 0.3); color: white; }
+.bsm-preset.active {
+  background: rgba(233, 30, 123, 0.15);
+  border-color: var(--sakura-pink);
+  color: var(--sakura-pink);
+}
+
+.bsm-confirm-btn {
+  width: 100%;
+  padding: 16px;
+  background: linear-gradient(135deg, #e91e7b, #ff6b9d);
+  border: none;
+  border-radius: 14px;
+  color: white;
+  font-size: 16px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.2s;
+  box-shadow: 0 4px 20px rgba(233, 30, 123, 0.25);
+}
+.bsm-confirm-btn:hover:not(:disabled) { transform: translateY(-1px); box-shadow: 0 6px 28px rgba(233, 30, 123, 0.4); }
+.bsm-confirm-btn:disabled { opacity: 0.4; cursor: not-allowed; transform: none; }
+
+.bsm-alt-btn {
+  display: block;
+  width: 100%;
+  padding: 10px;
+  margin-top: 10px;
+  background: none;
+  border: none;
+  color: rgba(255,255,255,0.4);
+  font-size: 13px;
+  cursor: pointer;
+  transition: color 0.2s;
+}
+.bsm-alt-btn:hover { color: var(--sakura-pink); }
+
+/* Transak iframe container */
+.bsm-transak-container {
+  display: flex;
+  flex-direction: column;
+  height: 520px;
+}
+.bsm-transak-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding-bottom: 12px;
+  margin-bottom: 12px;
+  border-bottom: 1px solid rgba(255,255,255,0.06);
+  color: rgba(255,255,255,0.7);
+  font-size: 14px;
+  font-weight: 600;
+}
+.bsm-transak-iframe {
+  flex: 1;
+  border: none;
+  border-radius: 12px;
+  background: #111;
+}
+
+/* Processing / swapping spinner */
+.bsm-processing {
+  text-align: center;
+  padding: 48px 20px;
+}
+.bsm-processing h3 {
+  color: white;
+  margin: 20px 0 8px;
+  font-size: 18px;
+}
+.bsm-processing p {
+  color: rgba(255,255,255,0.5);
+  font-size: 13px;
+  line-height: 1.5;
+  max-width: 280px;
+  margin: 0 auto;
+}
+.bsm-spinner {
+  width: 48px;
+  height: 48px;
+  border: 3px solid rgba(233, 30, 123, 0.15);
+  border-top-color: var(--sakura-pink);
+  border-radius: 50%;
+  margin: 0 auto;
+  animation: bsm-spin 0.8s linear infinite;
+}
+
+/* Done / error screen */
+.bsm-done {
+  text-align: center;
+  padding: 40px 20px;
+}
+.bsm-done-icon {
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  background: rgba(76, 175, 80, 0.12);
+  color: #4caf50;
+  font-size: 28px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0 auto 16px;
+}
+.bsm-done h3 {
+  color: white;
+  margin: 0 0 8px;
+  font-size: 20px;
+}
+.bsm-done-amount {
+  color: rgba(255,255,255,0.6);
+  font-size: 15px;
+  margin: 0 0 16px;
+}
+.bsm-done-amount strong {
+  color: var(--sakura-pink);
+}
+.bsm-tx-link {
+  display: inline-block;
+  color: var(--sakura-pink);
+  font-size: 13px;
+  margin-bottom: 20px;
+  text-decoration: none;
+  opacity: 0.8;
+}
+.bsm-tx-link:hover { opacity: 1; text-decoration: underline; }
+
+@keyframes bsm-fade-in { from { opacity: 0; } to { opacity: 1; } }
+@keyframes bsm-slide-up { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes bsm-spin { to { transform: rotate(360deg); } }
+
+@keyframes fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
 }
