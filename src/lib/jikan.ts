@@ -62,6 +62,33 @@ export async function fetchJikanTrending(): Promise<JikanAnime[]> {
     }
 }
 
+export const ANIME_GENRES: { id: number; name: string }[] = [
+    { id: 1, name: "Action" },
+    { id: 2, name: "Adventure" },
+    { id: 4, name: "Comedy" },
+    { id: 8, name: "Drama" },
+    { id: 10, name: "Fantasy" },
+    { id: 14, name: "Horror" },
+    { id: 7, name: "Mystery" },
+    { id: 22, name: "Romance" },
+    { id: 24, name: "Sci-Fi" },
+    { id: 36, name: "Slice of Life" },
+    { id: 30, name: "Sports" },
+    { id: 37, name: "Supernatural" },
+];
+
+export async function fetchJikanByGenre(genreId: number): Promise<JikanAnime[]> {
+    try {
+        const data = await requestJikan(
+            `${JIKAN_API}/anime?genres=${genreId}&order_by=popularity&sort=asc&sfw=true&limit=12`
+        );
+        return data.data || [];
+    } catch (e) {
+        console.error("Jikan Genre Error", e);
+        return [];
+    }
+}
+
 export async function fetchJikanInfo(id: string | number): Promise<JikanAnime | null> {
     try {
         const data = await requestJikan(`${JIKAN_API}/anime/${id}/full`);

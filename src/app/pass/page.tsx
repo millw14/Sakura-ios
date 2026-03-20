@@ -8,6 +8,7 @@ import { useState, useEffect } from "react";
 import { payForMonthlyPass, calculateSplit } from "@/lib/payment-split";
 import { checkPassStatus, formatPassTimeRemaining, type PassStatus } from "@/lib/pass-check";
 import { MONTHLY_PASS_PRICE, INSURANCE_SPLIT, BURN_SPLIT, getConnection } from "@/lib/solana";
+import LottieIcon from "@/components/LottieIcon";
 
 type PurchaseState = "idle" | "paying" | "success" | "error";
 
@@ -101,7 +102,7 @@ export default function MonthlyPassPage() {
                     style={{ width: "100%", justifyContent: "center" }}
                     onClick={() => setVisible(true)}
                 >
-                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20 12V8H6a2 2 0 0 1-2-2c0-1.1.9-2 2-2h12v4" /><path d="M4 6v12c0 1.1.9 2 2 2h14v-4" /><circle cx="18" cy="16" r="1" /></svg>
+                    <LottieIcon src="/icons/wired-outline-421-wallet-purse-hover-pinch.json" size={18} colorFilter="brightness(0) invert(1) opacity(0.7)" replayIntervalMs={3000} autoplay />
                     ログイン — Sign Up / Login First
                 </button>
             );

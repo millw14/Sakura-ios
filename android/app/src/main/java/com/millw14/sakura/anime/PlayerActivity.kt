@@ -38,6 +38,7 @@ import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.okhttp.OkHttpDataSource
 import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.upstream.DefaultBandwidthMeter
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
@@ -494,8 +495,13 @@ class PlayerActivity : AppCompatActivity() {
             .setPrioritizeTimeOverSizeThresholds(true)
             .build()
 
+        val bandwidthMeter = DefaultBandwidthMeter.Builder(this)
+            .setInitialBitrateEstimate(5_000_000L)
+            .build()
+
         player = ExoPlayer.Builder(this)
             .setLoadControl(loadControl)
+            .setBandwidthMeter(bandwidthMeter)
             .build().also { exo ->
             playerView.player = wrapWithSkipNext(exo)
 
@@ -507,6 +513,7 @@ class PlayerActivity : AppCompatActivity() {
 
             exo.trackSelectionParameters = TrackSelectionParameters.Builder(this)
                 .setMaxVideoSize(Int.MAX_VALUE, Int.MAX_VALUE)
+                .setMinVideoSize(854, 480)
                 .setPreferredAudioLanguage("ja")
                 .setPreferredTextLanguage("en")
                 .build()

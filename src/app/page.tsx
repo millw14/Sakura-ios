@@ -3,10 +3,11 @@
 import Header from "@/components/Header";
 import MangaCard from "@/components/MangaCard";
 import Link from "next/link";
-import { useState, useEffect, useRef } from "react";
-import { getFeaturedManga, searchManga, type Manga } from "@/lib/mangadex";
+import { useState, useEffect, useRef, useCallback } from "react";
+import { getFeaturedManga, searchManga, searchMangaByGenre, MANGA_GENRES, type Manga } from "@/lib/mangadex";
 import { useRouter } from "next/navigation";
 import { getLocal, setLocal, STORAGE_KEYS } from "@/lib/storage";
+import LottieIcon from "@/components/LottieIcon";
 
 export default function Home() {
   const router = useRouter();
@@ -17,6 +18,9 @@ export default function Home() {
   const [searching, setSearching] = useState(false);
   const [showSearch, setShowSearch] = useState(false);
   const searchTimerRef = useRef<any>(null);
+  const [selectedGenre, setSelectedGenre] = useState<string | null>(null);
+  const [genreResults, setGenreResults] = useState<Manga[]>([]);
+  const [genreLoading, setGenreLoading] = useState(false);
 
   useEffect(() => {
     async function loadFeatured() {
@@ -48,6 +52,15 @@ export default function Home() {
     }, 600);
     return () => clearTimeout(searchTimerRef.current);
   }, [searchQuery]);
+
+  const handleGenreSelect = useCallback(async (tagId: string | null) => {
+    setSelectedGenre(tagId);
+    if (!tagId) { setGenreResults([]); return; }
+    setGenreLoading(true);
+    const results = await searchMangaByGenre(tagId);
+    setGenreResults(results);
+    setGenreLoading(false);
+  }, []);
 
   return (
     <>
@@ -125,8 +138,67 @@ export default function Home() {
           </section>
         )}
 
-        {/* Recommended Manga — Main Focus (Hidden during search) */}
+        {/* Genre Filter Chips */}
         {!showSearch && (
+          <section className="section" style={{ paddingTop: 12, paddingBottom: 0 }}>
+            <div className="genre-filters" style={{ maxWidth: 700, margin: '0 auto' }}>
+              <button
+                className={`genre-chip ${selectedGenre === null ? 'active' : ''}`}
+                onClick={() => handleGenreSelect(null)}
+              >
+                All
+              </button>
+              {MANGA_GENRES.map(g => (
+                <button
+                  key={g.id}
+                  className={`genre-chip ${selectedGenre === g.id ? 'active' : ''}`}
+                  onClick={() => handleGenreSelect(g.id)}
+                >
+                  {g.name}
+                </button>
+              ))}
+            </div>
+          </section>
+        )}
+
+        {/* Genre Results */}
+        {!showSearch && selectedGenre && (
+          <section className="section" style={{ paddingTop: 12 }}>
+            <div className="section-header">
+              <h2 className="section-title">{MANGA_GENRES.find(g => g.id === selectedGenre)?.name}</h2>
+              <p className="section-subtitle">Browse by genre</p>
+            </div>
+            {genreLoading ? (
+              <div className="manga-grid">
+                {Array.from({ length: 6 }).map((_, i) => (
+                  <div key={i} className="loading-skeleton" style={{ aspectRatio: "2/3", borderRadius: "var(--radius-md)" }} />
+                ))}
+              </div>
+            ) : genreResults.length > 0 ? (
+              <div className="manga-grid">
+                {genreResults.map((series) => (
+                  <MangaCard
+                    key={series.id}
+                    slug={series.id}
+                    title={series.title}
+                    cover={series.cover}
+                    genres={series.tags.slice(0, 3)}
+                    follows={series.follows}
+                    rating={series.rating}
+                    source="mangadex"
+                  />
+                ))}
+              </div>
+            ) : (
+              <div style={{ textAlign: "center", padding: 40, color: "var(--text-muted)" }}>
+                <p>No manga found for this genre.</p>
+              </div>
+            )}
+          </section>
+        )}
+
+        {/* Recommended Manga — Main Focus (Hidden during search and genre filter) */}
+        {!showSearch && !selectedGenre && (
           <section className="section" style={{ paddingTop: 12 }}>
             <div className="section-header">
               <h2 className="section-title">おすすめ</h2>
@@ -179,7 +251,9 @@ export default function Home() {
           }}>
             <div style={{ height: 3, background: "linear-gradient(90deg, var(--sakura-pink), var(--purple-accent), var(--sakura-pink))" }} />
             <div style={{ padding: "28px 24px", textAlign: "center" }}>
-              <div style={{ fontSize: 32, marginBottom: 12 }}>🎨</div>
+              <div style={{ display: "flex", justifyContent: "center", marginBottom: 12 }}>
+                <LottieIcon src="/icons/wired-outline-674-painter-hover-pinch.json" size={48} colorFilter="brightness(0) saturate(100%) invert(52%) sepia(74%) saturate(1057%) hue-rotate(308deg) brightness(101%) contrast(98%)" replayIntervalMs={3000} autoplay />
+              </div>
               <h2 style={{ fontSize: "1.4rem", margin: "0 0 8px", fontWeight: 800 }}>Create on Sakura</h2>
               <p style={{ color: "var(--text-secondary)", fontSize: "0.9rem", lineHeight: 1.6, maxWidth: 420, margin: "0 auto 20px" }}>
                 Artists and animators — publish your work on Sakura and earn a share of revenue. Join our growing creator community.
@@ -199,7 +273,7 @@ export default function Home() {
                   boxShadow: "0 4px 20px rgba(138,43,226,0.3)",
                 }}
               >
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>
+                <LottieIcon src="/icons/wired-outline-145-envelope-mail-hover-pinch.json" size={20} colorFilter="brightness(0) invert(1)" replayIntervalMs={3000} autoplay />
                 Apply Now
               </a>
               <p style={{ color: "var(--text-muted)", fontSize: "0.75rem", marginTop: 14 }}>

@@ -12,8 +12,10 @@ import { Browser } from '@capacitor/browser';
 import { getLocal, setLocal, STORAGE_KEYS, setChapterProgress as saveChapterProgress, getChapterProgress } from "@/lib/storage";
 import { downloadManager } from "@/lib/downloads";
 import ChapterComments from "@/components/ChapterComments";
+import LottieIcon from "@/components/LottieIcon";
 
 type ReadingMode = 'scroll' | 'page';
+type ReadingDirection = 'ltr' | 'rtl';
 
 /* ─── Mode Selection Modal ─── */
 function ModeSelectionModal({ onSelect }: { onSelect: (mode: ReadingMode) => void }) {
@@ -66,32 +68,154 @@ function NextChapterOverlay({ onNext, onBack }: { onNext: () => void; onBack: ()
     );
 }
 
+/* ─── Reader Overlay (double-tap to show/hide) ─── */
+function ReaderOverlay({
+    visible,
+    chapterTitle,
+    currentPage,
+    totalPages,
+    onPageChange,
+    onBack,
+    onPrevChapter,
+    onNextChapter,
+    hasPrevChapter,
+    hasNextChapter,
+    readingMode,
+    onReadingModeChange,
+    readingDirection,
+    onReadingDirectionChange,
+    onOrientationToggle,
+    orientation,
+}: {
+    visible: boolean;
+    chapterTitle: string;
+    currentPage: number;
+    totalPages: number;
+    onPageChange: (page: number) => void;
+    onBack: () => void;
+    onPrevChapter: () => void;
+    onNextChapter: () => void;
+    hasPrevChapter: boolean;
+    hasNextChapter: boolean;
+    readingMode: ReadingMode;
+    onReadingModeChange: (mode: ReadingMode) => void;
+    readingDirection: ReadingDirection;
+    onReadingDirectionChange: (dir: ReadingDirection) => void;
+    onOrientationToggle: () => void;
+    orientation: 'portrait' | 'landscape';
+}) {
+    return (
+        <div className={`reader-overlay ${visible ? 'visible' : ''}`} onClick={(e) => e.stopPropagation()}>
+            {/* Overlay Header */}
+            <div className="reader-overlay-header">
+                <button className="reader-overlay-back" onClick={onBack}>
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6" /></svg>
+                </button>
+                <div className="reader-overlay-title">{chapterTitle}</div>
+                <div className="reader-overlay-page-info">{currentPage}/{totalPages}</div>
+            </div>
+
+            {/* Overlay Footer */}
+            <div className="reader-overlay-footer">
+                {/* Page Navigation Slider Row */}
+                <div className="reader-overlay-slider-row">
+                    <button
+                        className="reader-overlay-skip-btn"
+                        onClick={onPrevChapter}
+                        disabled={!hasPrevChapter}
+                    >
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="5" x2="5" y1="5" y2="19" /><polygon points="19 20 9 12 19 4 19 20" /></svg>
+                    </button>
+                    <span className="reader-overlay-page-num">{currentPage}</span>
+                    <input
+                        type="range"
+                        className="reader-overlay-slider"
+                        min={1}
+                        max={totalPages}
+                        value={currentPage}
+                        onChange={(e) => onPageChange(Number(e.target.value))}
+                    />
+                    <span className="reader-overlay-page-num">{totalPages}</span>
+                    <button
+                        className="reader-overlay-skip-btn"
+                        onClick={onNextChapter}
+                        disabled={!hasNextChapter}
+                    >
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polygon points="5 4 15 12 5 20 5 4" /><line x1="19" x2="19" y1="5" y2="19" /></svg>
+                    </button>
+                </div>
+
+                {/* Settings Row */}
+                <div className="reader-overlay-settings">
+                    <button
+                        className={`reader-overlay-setting-btn ${orientation === 'landscape' ? 'active' : ''}`}
+                        onClick={onOrientationToggle}
+                        title={orientation === 'portrait' ? 'Switch to Landscape' : 'Switch to Portrait'}
+                    >
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                            {orientation === 'portrait' ? (
+                                <><rect x="5" y="2" width="14" height="20" rx="2" ry="2" /><line x1="12" y1="18" x2="12" y2="18" /></>
+                            ) : (
+                                <><rect x="2" y="5" width="20" height="14" rx="2" ry="2" /><line x1="18" y1="12" x2="18" y2="12" /></>
+                            )}
+                        </svg>
+                        <span>{orientation === 'portrait' ? 'Portrait' : 'Landscape'}</span>
+                    </button>
+
+                    <button
+                        className={`reader-overlay-setting-btn ${readingDirection === 'rtl' ? 'active' : ''}`}
+                        onClick={() => onReadingDirectionChange(readingDirection === 'ltr' ? 'rtl' : 'ltr')}
+                        title={readingDirection === 'ltr' ? 'Switch to RTL' : 'Switch to LTR'}
+                    >
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                            {readingDirection === 'ltr' ? (
+                                <><path d="M5 12h14" /><path d="m12 5 7 7-7 7" /></>
+                            ) : (
+                                <><path d="M19 12H5" /><path d="m12 19-7-7 7-7" /></>
+                            )}
+                        </svg>
+                        <span>{readingDirection === 'ltr' ? 'LTR' : 'RTL'}</span>
+                    </button>
+
+                    <button
+                        className="reader-overlay-setting-btn"
+                        onClick={() => onReadingModeChange(readingMode === 'scroll' ? 'page' : 'scroll')}
+                    >
+                        {readingMode === 'scroll' ? (
+                            <LottieIcon src="/icons/wired-outline-1384-page-view-array-hover-pinch.json" size={20} colorFilter="brightness(0) invert(1)" playOnMount />
+                        ) : (
+                            <LottieIcon src="/icons/wired-outline-3411-chevron-down-circle-hover-scale.json" size={20} colorFilter="brightness(0) invert(1)" playOnMount />
+                        )}
+                        <span>{readingMode === 'scroll' ? 'Page' : 'Scroll'}</span>
+                    </button>
+                </div>
+            </div>
+        </div>
+    );
+}
+
 /* ─── Page-by-Page Reader (Book Mode) ─── */
-function PageReader({ pages, currentPage, setCurrentPage, onLastPagePass, onPlaceholderDetected }: {
+function PageReader({ pages, currentPage, setCurrentPage, onLastPagePass, onPlaceholderDetected, onDoubleTap }: {
     pages: string[];
     currentPage: number;
     setCurrentPage: (p: number) => void;
     onLastPagePass?: () => void;
     onPlaceholderDetected?: () => void;
+    onDoubleTap?: () => void;
 }) {
     const containerRef = useRef<HTMLDivElement>(null);
     const [animDir, setAnimDir] = useState<'forward' | 'backward' | null>(null);
     const [animating, setAnimating] = useState(false);
+    const lastTapTime = useRef(0);
 
-    // Swipe tracking
     const touchStartX = useRef(0);
     const touchStartY = useRef(0);
     const isSwiping = useRef(false);
 
-    // Preload adjacent images (±2)
     useEffect(() => {
         const toPreload = [
-            currentPage,     // current (ensure loaded)
-            currentPage + 1, // next
-            currentPage + 2, // next+1
-            currentPage - 1, // previous
+            currentPage, currentPage + 1, currentPage + 2, currentPage - 1,
         ].filter(p => p >= 1 && p <= pages.length);
-
         toPreload.forEach(p => {
             const img = new Image();
             img.src = pages[p - 1];
@@ -126,7 +250,6 @@ function PageReader({ pages, currentPage, setCurrentPage, onLastPagePass, onPlac
         }
     }, [currentPage, setCurrentPage, animating]);
 
-    // Touch handlers
     const handleTouchStart = useCallback((e: React.TouchEvent) => {
         touchStartX.current = e.touches[0].clientX;
         touchStartY.current = e.touches[0].clientY;
@@ -136,7 +259,6 @@ function PageReader({ pages, currentPage, setCurrentPage, onLastPagePass, onPlac
     const handleTouchMove = useCallback((e: React.TouchEvent) => {
         const dx = Math.abs(e.touches[0].clientX - touchStartX.current);
         const dy = Math.abs(e.touches[0].clientY - touchStartY.current);
-        // Lock to horizontal swipe
         if (dx > dy && dx > 15) {
             isSwiping.current = true;
         }
@@ -151,17 +273,26 @@ function PageReader({ pages, currentPage, setCurrentPage, onLastPagePass, onPlac
         }
     }, [goNext, goPrev]);
 
-    // Tap zones (left 30%, right 70%)
     const handleTap = useCallback((e: React.MouseEvent) => {
-        if (animating) return;
-        const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
-        const x = e.clientX - rect.left;
-        const pct = x / rect.width;
-        if (pct < 0.3) goPrev();
-        else if (pct > 0.7) goNext();
-    }, [goNext, goPrev, animating]);
+        const now = Date.now();
+        if (now - lastTapTime.current < 300) {
+            onDoubleTap?.();
+            lastTapTime.current = 0;
+            return;
+        }
+        lastTapTime.current = now;
 
-    // Keyboard navigation
+        setTimeout(() => {
+            if (lastTapTime.current === 0) return;
+            if (animating) return;
+            const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+            const x = e.clientX - rect.left;
+            const pct = x / rect.width;
+            if (pct < 0.3) goPrev();
+            else if (pct > 0.7) goNext();
+        }, 310);
+    }, [goNext, goPrev, animating, onDoubleTap]);
+
     useEffect(() => {
         const handleKey = (e: KeyboardEvent) => {
             if (e.key === 'ArrowLeft') goPrev();
@@ -171,7 +302,6 @@ function PageReader({ pages, currentPage, setCurrentPage, onLastPagePass, onPlac
         return () => window.removeEventListener('keydown', handleKey);
     }, [goNext, goPrev]);
 
-    // Determine animation class
     const pageClass = animDir === 'forward'
         ? 'page-turn-forward'
         : animDir === 'backward'
@@ -196,7 +326,6 @@ function PageReader({ pages, currentPage, setCurrentPage, onLastPagePass, onPlac
                     referrerPolicy="no-referrer"
                     onLoad={(e) => {
                         const img = e.currentTarget;
-                        // Catch known MangaDex 5-page/takedown placeholder dimensions (e.g. 679x5975 Bilibili ghost strips)
                         if (img.naturalWidth === 679 && img.naturalHeight === 5975 && onPlaceholderDetected) {
                             onPlaceholderDetected();
                         }
@@ -204,7 +333,6 @@ function PageReader({ pages, currentPage, setCurrentPage, onLastPagePass, onPlac
                 />
             </div>
 
-            {/* Page counter */}
             <div className="page-reader-counter">
                 {currentPage} / {pages.length}
             </div>
@@ -249,21 +377,97 @@ function ReaderContent() {
     const [externalUrl, setExternalUrl] = useState<string | null>(null);
     const [error, setError] = useState<string | null>(null);
 
-    // Reading mode state
     const [readingMode, setReadingMode] = useState<ReadingMode | null>(null);
     const [showModeModal, setShowModeModal] = useState(false);
 
-    // Next chapter state
     const [allChapters, setAllChapters] = useState<Chapter[]>([]);
     const [nextChapter, setNextChapter] = useState<Chapter | null>(null);
+    const [prevChapter, setPrevChapter] = useState<Chapter | null>(null);
+    const [currentChapterInfo, setCurrentChapterInfo] = useState<Chapter | null>(null);
     const [showNextChapterOverlay, setShowNextChapterOverlay] = useState(false);
 
-    // Page indicator visibility (auto-hide after 2s)
     const [showPageIndicator, setShowPageIndicator] = useState(false);
     const pageIndicatorTimer = useRef<NodeJS.Timeout | null>(null);
 
-    // Resume toast
     const [resumeToast, setResumeToast] = useState<string | null>(null);
+
+    // Overlay state
+    const [overlayVisible, setOverlayVisible] = useState(false);
+    const overlayAutoHideTimer = useRef<NodeJS.Timeout | null>(null);
+
+    // Reading settings
+    const [readingDirection, setReadingDirection] = useState<ReadingDirection>(() =>
+        (getLocal<string>('sakura_reading_direction', 'ltr') as ReadingDirection) || 'ltr'
+    );
+    const [orientation, setOrientation] = useState<'portrait' | 'landscape'>(() =>
+        (getLocal<string>('sakura_reading_orientation', 'portrait') as 'portrait' | 'landscape') || 'portrait'
+    );
+
+    // Double-tap for scroll mode
+    const lastScrollTap = useRef(0);
+
+    const toggleOverlay = useCallback(() => {
+        setOverlayVisible(prev => {
+            const next = !prev;
+            if (overlayAutoHideTimer.current) clearTimeout(overlayAutoHideTimer.current);
+            if (next) {
+                overlayAutoHideTimer.current = setTimeout(() => setOverlayVisible(false), 5000);
+            }
+            return next;
+        });
+    }, []);
+
+    const resetAutoHide = useCallback(() => {
+        if (overlayAutoHideTimer.current) clearTimeout(overlayAutoHideTimer.current);
+        overlayAutoHideTimer.current = setTimeout(() => setOverlayVisible(false), 5000);
+    }, []);
+
+    const handleScrollDoubleTap = useCallback((e: React.MouseEvent) => {
+        const now = Date.now();
+        if (now - lastScrollTap.current < 300) {
+            toggleOverlay();
+            lastScrollTap.current = 0;
+        } else {
+            lastScrollTap.current = now;
+        }
+    }, [toggleOverlay]);
+
+    // Orientation lock
+    const toggleOrientation = useCallback(() => {
+        const next = orientation === 'portrait' ? 'landscape' : 'portrait';
+        setOrientation(next);
+        setLocal('sakura_reading_orientation', next);
+        resetAutoHide();
+        try {
+            const screenAny = screen as any;
+            if (screenAny.orientation?.lock) {
+                screenAny.orientation.lock(next === 'landscape' ? 'landscape-primary' : 'portrait-primary').catch(() => {});
+            }
+        } catch {}
+    }, [orientation, resetAutoHide]);
+
+    const handleReadingDirectionChange = useCallback((dir: ReadingDirection) => {
+        setReadingDirection(dir);
+        setLocal('sakura_reading_direction', dir);
+        resetAutoHide();
+    }, [resetAutoHide]);
+
+    const handleOverlayModeChange = useCallback((mode: ReadingMode) => {
+        setReadingMode(mode);
+        setLocal(STORAGE_KEYS.READING_MODE, mode);
+        resetAutoHide();
+    }, [resetAutoHide]);
+
+    const handleOverlayPageChange = useCallback((page: number) => {
+        setCurrentPage(page);
+        resetAutoHide();
+        if (readingMode === 'scroll') {
+            const images = document.querySelectorAll(".reader-page");
+            if (images[page - 1]) {
+                images[page - 1].scrollIntoView({ behavior: 'smooth' });
+            }
+        }
+    }, [readingMode, resetAutoHide]);
 
     // Load reading mode preference
     useEffect(() => {
@@ -296,7 +500,6 @@ function ReaderContent() {
                 setError(null);
                 setExternalUrl(null);
 
-                // Check local cache first
                 const cache = getLocal<Record<string, string[]>>(STORAGE_KEYS.CHAPTER_CACHE, {});
                 const isCached = cache[chapterId] && cache[chapterId].length > 0;
 
@@ -304,22 +507,25 @@ function ReaderContent() {
                 let requiresPass = false;
                 let manga: any = null;
 
-                // Always fetch chapter list for "next chapter" feature
                 let chapterList: Chapter[] = [];
                 if (mangaId) {
                     try {
                         chapterList = await source.getChapters(mangaId, 500, 0);
                         if (isMounted) setAllChapters(chapterList);
 
-                        // Find next chapter (chapters are newest-first, so "next" = index - 1)
                         const currentIdx = chapterList.findIndex(ch => ch.id === chapterId);
-                        if (currentIdx > 0) {
-                            if (isMounted) setNextChapter(chapterList[currentIdx - 1]);
+                        if (currentIdx >= 0 && isMounted) {
+                            setCurrentChapterInfo(chapterList[currentIdx]);
+                        }
+                        if (currentIdx > 0 && isMounted) {
+                            setNextChapter(chapterList[currentIdx - 1]);
+                        }
+                        if (currentIdx < chapterList.length - 1 && isMounted) {
+                            setPrevChapter(chapterList[currentIdx + 1]);
                         }
                     } catch (e) { console.warn("Failed to fetch chapter list", e); }
                 }
 
-                // If cached, serve from cache
                 if (isCached) {
                     if (isMounted) {
                         setPages(cache[chapterId]);
@@ -375,7 +581,6 @@ function ReaderContent() {
                     let urls: string[] = [];
                     const dlTask = downloadManager.getTask(chapterId);
                     if (dlTask && dlTask.state === 'completed') {
-                        console.log("Loading offline chapter from filesystem...");
                         for (let i = 0; i < dlTask.pages.length; i++) {
                             const localUrl = await downloadManager.getLocalPageUrl(mangaId!, chapterId!, i);
                             if (localUrl) urls.push(localUrl);
@@ -390,7 +595,6 @@ function ReaderContent() {
                         if (urls.length > 0) {
                             setPages(urls);
 
-                            // Cache pages locally (keep last 20 chapters)
                             try {
                                 const existingCache = getLocal<Record<string, string[]>>(STORAGE_KEYS.CHAPTER_CACHE, {});
                                 const entries = Object.entries(existingCache);
@@ -404,7 +608,6 @@ function ReaderContent() {
                                 }
                             } catch (e) { console.warn("Cache save failed", e); }
 
-                            // Save to History
                             try {
                                 const history = getLocal(STORAGE_KEYS.HISTORY, []);
                                 const newEntry = {
@@ -435,22 +638,30 @@ function ReaderContent() {
         return () => { isMounted = false; };
     }, [chapterId, mangaId, publicKey, sourceStr]);
 
-    // Navigate to next chapter
     const goToNextChapter = useCallback(() => {
         if (nextChapter && mangaId) {
             window.scrollTo({ top: 0 });
             setCurrentPage(1);
             setShowNextChapterOverlay(false);
+            setOverlayVisible(false);
             router.push(`/chapter?id=${nextChapter.id}&manga=${mangaId}&source=${sourceStr}`);
         }
     }, [nextChapter, mangaId, sourceStr, router]);
 
-    // Go back to series
+    const goToPrevChapter = useCallback(() => {
+        if (prevChapter && mangaId) {
+            window.scrollTo({ top: 0 });
+            setCurrentPage(1);
+            setOverlayVisible(false);
+            router.push(`/chapter?id=${prevChapter.id}&manga=${mangaId}&source=${sourceStr}`);
+        }
+    }, [prevChapter, mangaId, sourceStr, router]);
+
     const goBackToSeries = useCallback(() => {
         router.push(`/title?id=${mangaId}&source=${sourceStr}`);
     }, [mangaId, sourceStr, router]);
 
-    // Scroll-mode header hide + progress tracking + page indicator (throttled to 200ms)
+    // Scroll-mode header hide + progress tracking + page indicator
     const scrollThrottleRef = useRef(false);
     const handleScroll = useCallback(() => {
         if (scrollThrottleRef.current) return;
@@ -469,12 +680,10 @@ function ReaderContent() {
                 }
             });
 
-            // Show floating page indicator
             setShowPageIndicator(true);
             if (pageIndicatorTimer.current) clearTimeout(pageIndicatorTimer.current);
             pageIndicatorTimer.current = setTimeout(() => setShowPageIndicator(false), 2000);
 
-            // Track scroll progress
             const scrollHeight = document.documentElement.scrollHeight - window.innerHeight;
             if (scrollHeight > 0 && mangaId && chapterId) {
                 const progress = (scrollY / scrollHeight) * 100;
@@ -488,7 +697,6 @@ function ReaderContent() {
         return () => window.removeEventListener("scroll", handleScroll);
     }, [handleScroll]);
 
-    // Track page-mode progress
     useEffect(() => {
         if (readingMode === 'page' && pages.length > 0 && mangaId && chapterId) {
             const progress = (currentPage / pages.length) * 100;
@@ -503,7 +711,6 @@ function ReaderContent() {
         const savedProgress = getChapterProgress(mangaId, chapterId);
         if (savedProgress > 5 && savedProgress < 95) {
             if (readingMode === 'scroll') {
-                // Delay to let images start loading
                 const timer = setTimeout(() => {
                     const scrollHeight = document.documentElement.scrollHeight - window.innerHeight;
                     const targetScroll = (savedProgress / 100) * scrollHeight;
@@ -515,7 +722,6 @@ function ReaderContent() {
                 }, 800);
                 return () => clearTimeout(timer);
             } else {
-                // Page mode: restore page number
                 const resumePage = Math.max(1, Math.ceil((savedProgress / 100) * pages.length));
                 setCurrentPage(resumePage);
                 setResumeToast(`Resumed at page ${resumePage} / ${pages.length}`);
@@ -525,14 +731,22 @@ function ReaderContent() {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [pages.length, readingMode]);
 
+    // Cleanup orientation lock on unmount
+    useEffect(() => {
+        return () => {
+            try {
+                const screenAny = screen as any;
+                if (screenAny.orientation?.unlock) screenAny.orientation.unlock();
+            } catch {}
+        };
+    }, []);
+
     if (!chapterId) return null;
 
-    // Mode selection modal
     if (showModeModal) {
         return <ModeSelectionModal onSelect={handleModeSelect} />;
     }
 
-    // Next chapter overlay (page mode)
     if (showNextChapterOverlay && nextChapter) {
         return (
             <NextChapterOverlay
@@ -547,12 +761,8 @@ function ReaderContent() {
             <div className="error-container" style={{ height: "100vh", display: "flex", flexDirection: "column", justifyContent: "center", alignItems: "center", gap: 16 }}>
                 <h3>Error Loading Chapter</h3>
                 <p style={{ color: "var(--love)", textAlign: "center", maxWidth: "80%" }}>{error}</p>
-                <button className="btn-primary" onClick={() => window.location.reload()}>
-                    Retry
-                </button>
-                <button className="btn-secondary" onClick={() => router.back()}>
-                    ← Go Back
-                </button>
+                <button className="btn-primary" onClick={() => window.location.reload()}>Retry</button>
+                <button className="btn-secondary" onClick={() => router.back()}>← Go Back</button>
             </div>
         );
     }
@@ -569,25 +779,15 @@ function ReaderContent() {
                         </svg>
                     </div>
                     <div className="premium-badge">External Source</div>
-                    <h2 style={{ fontFamily: "var(--font-jp)", fontSize: 24, marginBottom: 8 }}>
-                        Official Source Only
-                    </h2>
+                    <h2 style={{ fontFamily: "var(--font-jp)", fontSize: 24, marginBottom: 8 }}>Official Source Only</h2>
                     <p style={{ fontSize: 16, color: "var(--text-secondary)", marginBottom: 16, textAlign: "center" }}>
                         This content is hosted on an official site (e.g. MangaPlus).<br />
                         Your <strong>Sakura Premium</strong> allows you to access it.
                     </p>
-                    <button
-                        onClick={() => Browser.open({ url: externalUrl })}
-                        className="btn-primary"
-                        style={{ minWidth: 280, justifyContent: "center" }}
-                    >
-                        Open Official Site
-                    </button>
-                    <button onClick={() => router.back()} style={{ fontSize: 13, color: "var(--text-muted)", marginTop: 16, background: "none", border: "none", cursor: "pointer" }}>
-                        ← Go Back
-                    </button>
+                    <button onClick={() => Browser.open({ url: externalUrl })} className="btn-primary" style={{ minWidth: 280, justifyContent: "center" }}>Open Official Site</button>
+                    <button onClick={() => router.back()} style={{ fontSize: 13, color: "var(--text-muted)", marginTop: 16, background: "none", border: "none", cursor: "pointer" }}>← Go Back</button>
                 </div>
-            </div >
+            </div>
         );
     }
 
@@ -613,42 +813,36 @@ function ReaderContent() {
                         </svg>
                     </div>
                     <div className="premium-badge">Sakura Premium</div>
-                    <h2 style={{ fontFamily: "var(--font-jp)", fontSize: 28, marginBottom: 8 }}>
-                        最新話はプレミアム限定です
-                    </h2>
+                    <h2 style={{ fontFamily: "var(--font-jp)", fontSize: 28, marginBottom: 8 }}>最新話はプレミアム限定です</h2>
                     <p style={{ fontSize: 16, color: "var(--text-secondary)", marginBottom: 8 }}>
-                        This is one of the latest chapters. <br />
-                        <strong>Sakura Premium</strong> is required to read it.
+                        This is one of the latest chapters. <br /><strong>Sakura Premium</strong> is required to read it.
                     </p>
                     <div style={{ display: "flex", gap: 12, flexDirection: "column", alignItems: "center" }}>
                         <Link href="/pass" className="btn-primary" style={{ minWidth: 280, justifyContent: "center" }}>
                             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect width="20" height="14" x="2" y="5" rx="2" /><line x1="2" x2="22" y1="10" y2="10" /></svg>
                             プレミアムに参加 — Get Premium ($10/mo)
                         </Link>
-
                         {!publicKey && (
-                            <button
-                                className="btn-secondary"
-                                style={{ minWidth: 280, justifyContent: "center" }}
-                                onClick={() => setVisible(true)}
-                            >
-                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20 12V8H6a2 2 0 0 1-2-2c0-1.1.9-2 2-2h12v4" /><path d="M4 6v12c0 1.1.9 2 2 2h14v-4" /><circle cx="18" cy="16" r="1" /></svg>
+                            <button className="btn-secondary" style={{ minWidth: 280, justifyContent: "center" }} onClick={() => setVisible(true)}>
+                                <LottieIcon src="/icons/wired-outline-421-wallet-purse-hover-pinch.json" size={18} colorFilter="brightness(0) invert(1) opacity(0.7)" replayIntervalMs={3000} autoplay />
                                 ログイン — Sign Up / Login
                             </button>
                         )}
-                        <button onClick={() => router.back()} style={{ fontSize: 13, color: "var(--text-muted)", marginTop: 8, background: "none", border: "none", cursor: "pointer" }}>
-                            ← 戻る — Go Back
-                        </button>
+                        <button onClick={() => router.back()} style={{ fontSize: 13, color: "var(--text-muted)", marginTop: 8, background: "none", border: "none", cursor: "pointer" }}>← 戻る — Go Back</button>
                     </div>
                 </div>
             </div>
         );
     }
 
+    const chapterTitle = currentChapterInfo
+        ? `Ch. ${currentChapterInfo.chapter || '?'}${currentChapterInfo.title ? ` — ${currentChapterInfo.title}` : ''}`
+        : `Chapter`;
+
     return (
         <div className="reader">
-            {/* Header */}
-            <div className={`reader-header ${headerVisible ? "" : "hidden"}`}>
+            {/* Old Header (hidden when overlay is active) */}
+            <div className={`reader-header ${headerVisible && !overlayVisible ? "" : "hidden"}`}>
                 <button onClick={() => router.back()} className="reader-back">
                     ← 戻る Back
                 </button>
@@ -656,7 +850,6 @@ function ReaderContent() {
                     {readingMode === 'page' ? 'ページめくり Page Mode' : 'スクロール Scroll Mode'}
                 </span>
                 <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-                    {/* Mode toggle */}
                     <button
                         onClick={() => {
                             const newMode: ReadingMode = readingMode === 'scroll' ? 'page' : 'scroll';
@@ -669,7 +862,7 @@ function ReaderContent() {
                             color: "var(--text-muted)", cursor: "pointer", fontSize: 11
                         }}
                     >
-                        {readingMode === 'scroll' ? '📖 Page' : '📜 Scroll'}
+                        {readingMode === 'scroll' ? <><LottieIcon src="/icons/wired-outline-1384-page-view-array-hover-pinch.json" size={14} colorFilter="brightness(0) invert(1) opacity(0.6)" /> Page</> : <><LottieIcon src="/icons/wired-outline-3411-chevron-down-circle-hover-scale.json" size={14} colorFilter="brightness(0) invert(1) opacity(0.6)" /> Scroll</>}
                     </button>
                     {passExpiry && (
                         <span style={{ fontSize: 11, color: "#4ade80" }}>
@@ -690,9 +883,10 @@ function ReaderContent() {
                     setCurrentPage={setCurrentPage}
                     onLastPagePass={() => setShowNextChapterOverlay(true)}
                     onPlaceholderDetected={() => setExternalUrl("https://mangadex.org")}
+                    onDoubleTap={toggleOverlay}
                 />
             ) : (
-                <div className="scroll-reader">
+                <div className="scroll-reader" onClick={handleScrollDoubleTap}>
                     {pages.map((url, index) => (
                         <div key={index} className="reader-page" id={`page-${index + 1}`}>
                             {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -712,6 +906,26 @@ function ReaderContent() {
                     ))}
                 </div>
             )}
+
+            {/* Reader Overlay */}
+            <ReaderOverlay
+                visible={overlayVisible}
+                chapterTitle={chapterTitle}
+                currentPage={currentPage}
+                totalPages={pages.length}
+                onPageChange={handleOverlayPageChange}
+                onBack={goBackToSeries}
+                onPrevChapter={goToPrevChapter}
+                onNextChapter={goToNextChapter}
+                hasPrevChapter={!!prevChapter}
+                hasNextChapter={!!nextChapter}
+                readingMode={readingMode || 'scroll'}
+                onReadingModeChange={handleOverlayModeChange}
+                readingDirection={readingDirection}
+                onReadingDirectionChange={handleReadingDirectionChange}
+                onOrientationToggle={toggleOrientation}
+                orientation={orientation}
+            />
 
             {/* Floating Page Indicator (scroll mode) */}
             {readingMode === 'scroll' && pages.length > 0 && (
@@ -748,11 +962,7 @@ function ReaderContent() {
                             No more chapters available.
                         </p>
                     )}
-                    <button
-                        className="btn-secondary"
-                        onClick={goBackToSeries}
-                        style={{ marginTop: 16 }}
-                    >
+                    <button className="btn-secondary" onClick={goBackToSeries} style={{ marginTop: 16 }}>
                         ← シリーズに戻る — Back to Series
                     </button>
                 </div>

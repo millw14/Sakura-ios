@@ -6,6 +6,7 @@ import MangaCard from "@/components/MangaCard";
 import { searchAllSources } from "@/lib/sources";
 import { type Manga } from "@/lib/sources/types";
 import { getLocal, setLocal, STORAGE_KEYS } from "@/lib/storage";
+import { MANGA_GENRES, searchMangaByGenre } from "@/lib/mangadex";
 
 // Debounce hook for search
 function useDebounce(value: string, delay: number) {
@@ -27,6 +28,9 @@ export default function BrowsePage() {
     const [error, setError] = useState<string | null>(null);
     const [currentPage, setCurrentPage] = useState(1);
     const debouncedSearch = useDebounce(search, 500);
+    const [selectedGenre, setSelectedGenre] = useState<string | null>(null);
+    const [genreResults, setGenreResults] = useState<Manga[]>([]);
+    const [genreLoading, setGenreLoading] = useState(false);
 
     // Recent searches
     const [recentSearches, setRecentSearches] = useState<string[]>([]);
@@ -118,11 +122,22 @@ export default function BrowsePage() {
         fetchManga(debouncedSearch);
     }, [debouncedSearch, fetchManga]);
 
-    // Handle selecting a recent search
     const handleRecentClick = (query: string) => {
         setSearch(query);
         setShowRecent(false);
     };
+
+    const handleGenreSelect = useCallback(async (tagId: string | null) => {
+        setSelectedGenre(tagId);
+        if (!tagId) {
+            setGenreResults([]);
+            return;
+        }
+        setGenreLoading(true);
+        const results = await searchMangaByGenre(tagId);
+        setGenreResults(results.map(m => ({ ...m, sourceStr: 'mangadex' })) as Manga[]);
+        setGenreLoading(false);
+    }, []);
 
     return (
         <>
@@ -190,8 +205,59 @@ export default function BrowsePage() {
                         )}
                     </div>
 
+                    {/* Genre Filter Chips */}
+                    <div className="genre-filters" style={{ maxWidth: 700, margin: '0 auto 24px' }}>
+                        <button
+                            className={`genre-chip ${selectedGenre === null ? 'active' : ''}`}
+                            onClick={() => handleGenreSelect(null)}
+                        >
+                            All
+                        </button>
+                        {MANGA_GENRES.map(g => (
+                            <button
+                                key={g.id}
+                                className={`genre-chip ${selectedGenre === g.id ? 'active' : ''}`}
+                                onClick={() => handleGenreSelect(g.id)}
+                            >
+                                {g.name}
+                            </button>
+                        ))}
+                    </div>
+
+                    {/* Genre Results */}
+                    {selectedGenre && (
+                        <>
+                            {genreLoading ? (
+                                <div className="manga-grid" style={{ gridTemplateColumns: "repeat(2, 1fr)" }}>
+                                    {Array.from({ length: ITEMS_PER_PAGE }).map((_, i) => (
+                                        <div key={i} className="loading-skeleton" style={{ aspectRatio: "2/3", borderRadius: "var(--radius-md)" }} />
+                                    ))}
+                                </div>
+                            ) : genreResults.length > 0 ? (
+                                <div className="manga-grid" style={{ gridTemplateColumns: "repeat(2, 1fr)" }}>
+                                    {genreResults.map((manga) => (
+                                        <MangaCard
+                                            key={manga.id}
+                                            slug={manga.id}
+                                            title={manga.title}
+                                            cover={manga.cover}
+                                            genres={manga.tags.slice(0, 3)}
+                                            follows={manga.follows}
+                                            rating={manga.rating}
+                                            source={manga.sourceStr}
+                                        />
+                                    ))}
+                                </div>
+                            ) : (
+                                <div style={{ textAlign: "center", padding: 60, color: "var(--text-muted)" }}>
+                                    <p style={{ fontSize: 14 }}>No manga found for this genre.</p>
+                                </div>
+                            )}
+                        </>
+                    )}
+
                     {/* Error State */}
-                    {error && (
+                    {error && !selectedGenre && (
                         <div className="error-container" style={{ margin: "40px auto", maxWidth: 600 }}>
                             <p className="error-message">{error}</p>
                             <p style={{ fontSize: 14, marginTop: 8, color: "var(--text-muted)" }}>
@@ -200,8 +266,8 @@ export default function BrowsePage() {
                         </div>
                     )}
 
-                    {/* Grid */}
-                    {loading ? (
+                    {/* Grid — shown when no genre is selected */}
+                    {!selectedGenre && loading ? (
                         <div className="manga-grid" style={{ gridTemplateColumns: "repeat(2, 1fr)" }}>
                             {Array.from({ length: ITEMS_PER_PAGE }).map((_, i) => (
                                 <div
@@ -211,7 +277,7 @@ export default function BrowsePage() {
                                 />
                             ))}
                         </div>
-                    ) : (
+                    ) : !selectedGenre ? (
                         <>
                             {!error && (
                                 <div className="manga-grid" style={{ gridTemplateColumns: "repeat(2, 1fr)" }}>
@@ -261,7 +327,7 @@ export default function BrowsePage() {
                                 </div>
                             )}
                         </>
-                    )}
+                    ) : null}
                 </section>
 
                 <footer className="footer">

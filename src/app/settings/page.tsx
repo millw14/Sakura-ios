@@ -10,6 +10,7 @@ import { getProfile, upsertProfile } from "@/lib/comments";
 import { checkPassStatus } from "@/lib/pass-check";
 import { searchCreators, type CreatorProfile } from "@/lib/creator";
 import Link from "next/link";
+import LottieIcon from "@/components/LottieIcon";
 
 type ReadingMode = 'scroll' | 'page';
 
@@ -18,6 +19,7 @@ export default function SettingsPage() {
     const { setVisible } = useSakuraWalletModal();
 
     const [dataSaver, setDataSaver] = useState(false);
+    const [pnlTracker, setPnlTracker] = useState(false);
     const [cacheSize, setCacheSize] = useState("Checking...");
     const [readingMode, setReadingMode] = useState<ReadingMode>('page');
     const [newReleaseAlerts, setNewReleaseAlerts] = useState(false);
@@ -40,6 +42,7 @@ export default function SettingsPage() {
     useEffect(() => {
         const settings = getLocal<any>(STORAGE_KEYS.SETTINGS, { dataSaver: false });
         setDataSaver(settings.dataSaver);
+        setPnlTracker(!!settings.pnlTracker);
 
         const savedMode = getLocal<string>(STORAGE_KEYS.READING_MODE, 'page');
         setReadingMode(savedMode as ReadingMode);
@@ -106,6 +109,11 @@ export default function SettingsPage() {
     const toggleDataSaver = (val: boolean) => {
         setDataSaver(val);
         updateSetting('dataSaver', val);
+    };
+
+    const togglePnlTracker = (val: boolean) => {
+        setPnlTracker(val);
+        updateSetting('pnlTracker', val);
     };
 
     const handleReadingModeChange = (mode: ReadingMode) => {
@@ -349,58 +357,44 @@ export default function SettingsPage() {
                                     <span className="setting-name">
                                         Display Name {hasPass && <span title="Pass Holder">🌸</span>}
                                     </span>
-                                    <span className="setting-desc">
-                                        {hasPass
-                                            ? "Set a custom name that appears on your comments and profile."
-                                            : "Get a Monthly Pass to set a custom display name."}
-                                    </span>
+                                    <span className="setting-desc">Set a custom name that appears on your comments and profile.</span>
                                 </div>
-                                {hasPass ? (
-                                    <div style={{ display: "flex", gap: 8 }}>
-                                        <input
-                                            type="text"
-                                            placeholder="Enter display name..."
-                                            value={displayName}
-                                            onChange={(e) => setDisplayName(e.target.value.slice(0, 24))}
-                                            maxLength={24}
-                                            style={{
-                                                flex: 1,
-                                                padding: "10px 14px",
-                                                borderRadius: "var(--radius-md)",
-                                                background: "var(--bg-card)",
-                                                border: "1px solid var(--border-subtle)",
-                                                color: "var(--text-primary)",
-                                                fontSize: 14,
-                                                outline: "none",
-                                            }}
-                                        />
-                                        <button
-                                            className="btn-primary"
-                                            onClick={async () => {
-                                                await upsertProfile(
-                                                    publicKey.toBase58(),
-                                                    displayName || null,
-                                                    hasPass,
-                                                    bio || null
-                                                );
-                                                setProfileSaved(true);
-                                                setTimeout(() => setProfileSaved(false), 2000);
-                                            }}
-                                            disabled={profileLoading}
-                                            style={{ fontSize: 13, padding: "8px 20px", whiteSpace: "nowrap" }}
-                                        >
-                                            {profileSaved ? "✓ Saved" : "Save"}
-                                        </button>
-                                    </div>
-                                ) : (
-                                    <Link
-                                        href="/pass"
+                                <div style={{ display: "flex", gap: 8 }}>
+                                    <input
+                                        type="text"
+                                        placeholder="Enter display name..."
+                                        value={displayName}
+                                        onChange={(e) => setDisplayName(e.target.value.slice(0, 24))}
+                                        maxLength={24}
+                                        style={{
+                                            flex: 1,
+                                            padding: "10px 14px",
+                                            borderRadius: "var(--radius-md)",
+                                            background: "var(--bg-card)",
+                                            border: "1px solid var(--border-subtle)",
+                                            color: "var(--text-primary)",
+                                            fontSize: 14,
+                                            outline: "none",
+                                        }}
+                                    />
+                                    <button
                                         className="btn-primary"
-                                        style={{ fontSize: 13, padding: "10px 20px", textAlign: "center", textDecoration: "none" }}
+                                        onClick={async () => {
+                                            await upsertProfile(
+                                                publicKey.toBase58(),
+                                                displayName || null,
+                                                hasPass,
+                                                bio || null
+                                            );
+                                            setProfileSaved(true);
+                                            setTimeout(() => setProfileSaved(false), 2000);
+                                        }}
+                                        disabled={profileLoading}
+                                        style={{ fontSize: 13, padding: "8px 20px", whiteSpace: "nowrap" }}
                                     >
-                                        🌸 Get Monthly Pass to unlock
-                                    </Link>
-                                )}
+                                        {profileSaved ? "✓ Saved" : "Save"}
+                                    </button>
+                                </div>
                             </div>
 
                             {/* Bio */}
@@ -475,10 +469,14 @@ export default function SettingsPage() {
                                         color: readingMode === 'scroll' ? '#fff' : 'var(--text-muted)',
                                         border: "none",
                                         cursor: "pointer",
-                                        transition: "all 0.3s ease"
+                                        transition: "all 0.3s ease",
+                                        display: "flex",
+                                        alignItems: "center",
+                                        gap: 6,
                                     }}
                                 >
-                                    📜 Scroll
+                                    <LottieIcon src="/icons/wired-outline-3411-chevron-down-circle-hover-scale.json" size={18} colorFilter={readingMode === 'scroll' ? "brightness(0) invert(1)" : "brightness(0) invert(1) opacity(0.4)"} playOnMount={readingMode === 'scroll'} />
+                                    Scroll
                                 </button>
                                 <button
                                     onClick={() => handleReadingModeChange('page')}
@@ -490,10 +488,14 @@ export default function SettingsPage() {
                                         color: readingMode === 'page' ? '#fff' : 'var(--text-muted)',
                                         border: "none",
                                         cursor: "pointer",
-                                        transition: "all 0.3s ease"
+                                        transition: "all 0.3s ease",
+                                        display: "flex",
+                                        alignItems: "center",
+                                        gap: 6,
                                     }}
                                 >
-                                    📖 Page
+                                    <LottieIcon src="/icons/wired-outline-1384-page-view-array-hover-pinch.json" size={18} colorFilter={readingMode === 'page' ? "brightness(0) invert(1)" : "brightness(0) invert(1) opacity(0.4)"} playOnMount={readingMode === 'page'} />
+                                    Page
                                 </button>
                             </div>
                         </div>
@@ -508,6 +510,21 @@ export default function SettingsPage() {
                                     type="checkbox"
                                     checked={dataSaver}
                                     onChange={(e) => toggleDataSaver(e.target.checked)}
+                                />
+                                <span className="slider round"></span>
+                            </label>
+                        </div>
+
+                        <div className="setting-item">
+                            <div className="setting-info">
+                                <span className="setting-name">PNL Tracker</span>
+                                <span className="setting-desc">Show a live SOL PNL widget while reading or watching.</span>
+                            </div>
+                            <label className="switch">
+                                <input
+                                    type="checkbox"
+                                    checked={pnlTracker}
+                                    onChange={(e) => togglePnlTracker(e.target.checked)}
                                 />
                                 <span className="slider round"></span>
                             </label>

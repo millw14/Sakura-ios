@@ -11,59 +11,49 @@ import { useSakuraWalletModal } from "@/components/SakuraWalletModal";
 import dynamic from "next/dynamic";
 
 const TipModal = dynamic(() => import("@/components/TipModal"), { ssr: false });
+import LottieIcon from "@/components/LottieIcon";
+const SaveToLibraryModal = dynamic(() => import("@/components/SaveToLibraryModal"), { ssr: false });
 import { getCreatorProfile } from "@/lib/creator";
 import { getFavorites, addFavorite, removeFavorite } from "@/lib/supabase";
-import { getLocal, setLocal, STORAGE_KEYS, setChapterProgress, getChapterProgress, getReadChapters, getAllChapterProgress, READ_THRESHOLD } from "@/lib/storage";
+import { getLocal, setLocal, STORAGE_KEYS, setChapterProgress, getChapterProgress, getReadChapters, getAllChapterProgress, READ_THRESHOLD, isInLibrary, type LibraryItem } from "@/lib/storage";
 import { useDownloads, downloadManager } from "@/lib/downloads";
 import ChapterComments from "@/components/ChapterComments";
 
 function FavoriteButton({ manga }: { manga: Manga }) {
-    const { publicKey } = useWallet();
-    const { setVisible } = useSakuraWalletModal();
-    const [isFav, setIsFav] = useState(false);
-    const [loading, setLoading] = useState(false);
+    const [showLibraryModal, setShowLibraryModal] = useState(false);
+    const [inLibrary, setInLibrary] = useState(false);
 
     useEffect(() => {
-        if (publicKey) {
-            getFavorites(publicKey.toBase58()).then(favs => {
-                setIsFav(favs.some(f => f.manga_id === manga.id));
-            });
-        } else {
-            setIsFav(false);
-        }
-    }, [publicKey, manga.id]);
+        setInLibrary(isInLibrary(manga.id, 'manga'));
+    }, [manga.id, showLibraryModal]);
 
-    const toggleFavorite = async () => {
-        if (!publicKey) {
-            setVisible(true);
-            return;
-        }
-
-        setLoading(true);
-        if (isFav) {
-            await removeFavorite(publicKey.toBase58(), manga.id);
-            setIsFav(false);
-        } else {
-            await addFavorite(publicKey.toBase58(), {
-                id: manga.id,
-                title: manga.title,
-                cover: manga.cover
-            });
-            setIsFav(true);
-        }
-        setLoading(false);
+    const libraryItem: LibraryItem = {
+        id: manga.id,
+        title: manga.title,
+        image: manga.cover,
+        type: 'manga',
+        addedAt: Date.now(),
     };
 
     return (
-        <button
-            onClick={toggleFavorite}
-            className="btn-secondary"
-            disabled={loading}
-            style={{ color: isFav ? "var(--sakura-pink)" : "currentColor" }}
-        >
-            <svg width="18" height="18" viewBox="0 0 24 24" fill={isFav ? "currentColor" : "none"} stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M19 14c1.49-1.28 3.6-2.34 3.6-4.44a5.15 5.15 0 0 0-3-4.44c-2.96-1.5-6.1.45-6.1.45S10.23 3.6 7.4 5.12c-1.8.92-3.4 2.37-3.4 4.44C4 11.66 6.1 12.72 7.6 14a16.84 16.84 0 0 0 4.4 3.6 16.8 16.8 0 0 0 4-3.6z" /></svg>
-            {loading ? "Saving..." : (isFav ? "お気に入り Saved" : "お気に入り Favorite")}
-        </button>
+        <>
+            <button
+                onClick={() => setShowLibraryModal(true)}
+                className="btn-secondary"
+                style={{ color: inLibrary ? "var(--sakura-pink)" : "currentColor" }}
+            >
+                <svg width="18" height="18" viewBox="0 0 24 24" fill={inLibrary ? "currentColor" : "none"} stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z" />
+                </svg>
+                {inLibrary ? "ライブラリ Saved" : "ライブラリ Save"}
+            </button>
+            {showLibraryModal && (
+                <SaveToLibraryModal
+                    item={libraryItem}
+                    onClose={() => setShowLibraryModal(false)}
+                />
+            )}
+        </>
     );
 }
 
@@ -441,7 +431,7 @@ function SeriesContent() {
                                             onClick={(e) => { e.preventDefault(); handleDownloadChapter(chapter.id, chapter.title || `Chapter ${chapter.chapter}`); }}
                                             title="Download"
                                         >
-                                            <svg width={dlIconSize} height={dlIconSize} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline points="7 10 12 15 17 10" /><line x1="12" x2="12" y1="15" y2="3" /></svg>
+                                            <LottieIcon src="/icons/wired-outline-199-download-2-hover-pointing.json" size={24} colorFilter="brightness(0) saturate(100%) invert(52%) sepia(74%) saturate(1057%) hue-rotate(308deg) brightness(101%) contrast(98%)" />
                                         </button>
                                     );
                                 }
@@ -449,7 +439,7 @@ function SeriesContent() {
                                 if (dl.state === 'completed') {
                                     return (
                                         <button className="dl-btn dl-completed" title="Downloaded" onClick={e => e.preventDefault()}>
-                                            <svg width={dlIconSize} height={dlIconSize} viewBox="0 0 24 24" fill="none" stroke="var(--sakura-pink)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" /><polyline points="22 4 12 14.01 9 11.01" /></svg>
+                                            <LottieIcon src="/icons/wired-outline-24-approved-checked-hover-loading.json" size={24} colorFilter="brightness(0) saturate(100%) invert(62%) sepia(61%) saturate(483%) hue-rotate(79deg) brightness(96%) contrast(92%)" playOnMount />
                                         </button>
                                     );
                                 }

@@ -156,3 +156,84 @@ export function saveAnimeWatchEntry(entry: AnimeHistoryEntry): void {
 export function getAnimeHistory(): AnimeHistoryEntry[] {
     return getLocal<AnimeHistoryEntry[]>(STORAGE_KEYS.ANIME_HISTORY, []);
 }
+
+/* ── Library System ── */
+
+export interface LibraryItem {
+    id: string;
+    title: string;
+    image?: string;
+    type: 'anime' | 'manga';
+    addedAt: number;
+}
+
+export interface LibraryCategory {
+    name: string;
+    items: LibraryItem[];
+}
+
+const LIBRARY_KEY = 'sakura_library';
+const DEFAULT_CATEGORY = 'Default';
+
+function getLibrary(): LibraryCategory[] {
+    const lib = getLocal<LibraryCategory[]>(LIBRARY_KEY, []);
+    if (lib.length === 0) return [{ name: DEFAULT_CATEGORY, items: [] }];
+    if (!lib.find(c => c.name === DEFAULT_CATEGORY)) {
+        lib.unshift({ name: DEFAULT_CATEGORY, items: [] });
+    }
+    return lib;
+}
+
+function saveLibrary(lib: LibraryCategory[]): void {
+    setLocal(LIBRARY_KEY, lib);
+}
+
+export function getLibraryCategories(): LibraryCategory[] {
+    return getLibrary();
+}
+
+export function addToLibrary(categoryName: string, item: LibraryItem): void {
+    const lib = getLibrary();
+    let cat = lib.find(c => c.name === categoryName);
+    if (!cat) {
+        cat = { name: categoryName, items: [] };
+        lib.push(cat);
+    }
+    if (!cat.items.find(i => i.id === item.id && i.type === item.type)) {
+        cat.items.unshift(item);
+    }
+    saveLibrary(lib);
+}
+
+export function removeFromLibrary(categoryName: string, itemId: string, itemType: 'anime' | 'manga'): void {
+    const lib = getLibrary();
+    const cat = lib.find(c => c.name === categoryName);
+    if (cat) {
+        cat.items = cat.items.filter(i => !(i.id === itemId && i.type === itemType));
+        saveLibrary(lib);
+    }
+}
+
+export function createLibraryCategory(name: string): void {
+    const lib = getLibrary();
+    if (!lib.find(c => c.name === name)) {
+        lib.push({ name, items: [] });
+        saveLibrary(lib);
+    }
+}
+
+export function deleteLibraryCategory(name: string): void {
+    if (name === DEFAULT_CATEGORY) return;
+    const lib = getLibrary().filter(c => c.name !== name);
+    saveLibrary(lib);
+}
+
+export function getItemCategories(itemId: string, itemType: 'anime' | 'manga'): string[] {
+    return getLibrary()
+        .filter(c => c.items.some(i => i.id === itemId && i.type === itemType))
+        .map(c => c.name);
+}
+
+export function isInLibrary(itemId: string, itemType: 'anime' | 'manga'): boolean {
+    return getLibrary().some(c => c.items.some(i => i.id === itemId && i.type === itemType));
+}

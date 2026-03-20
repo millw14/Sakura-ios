@@ -6,9 +6,12 @@ import Header from "@/components/Header";
 import { fetchAnimeInfo, getCachedAnimeInfo, refreshAnimeInfo, fetchEpisodeSources, type AnimeInfo } from "@/lib/anime";
 import Link from "next/link";
 import { Capacitor } from "@capacitor/core";
-import { getLocal, setLocal, STORAGE_KEYS, getAnimeHistory } from "@/lib/storage";
+import { getLocal, setLocal, STORAGE_KEYS, getAnimeHistory, isInLibrary, type LibraryItem } from "@/lib/storage";
 import type { DownloadProgressEvent } from "@/plugins/anime";
 import { PSYOP_ID, PSYOP_INFO, PSYOP_STUDIO, PSYOP_CHARACTERS } from "@/lib/psyopAnime";
+import dynamic from "next/dynamic";
+import LottieIcon from "@/components/LottieIcon";
+const SaveToLibraryModal = dynamic(() => import("@/components/SaveToLibraryModal"), { ssr: false });
 
 interface AnimeDownloadEntry {
     episodeId: string;
@@ -167,12 +170,15 @@ function AnimeDetailsInner() {
     const [dlMap, setDlMap] = useState<Record<string, AnimeDownloadEntry>>({});
     const listenerRef = useRef<{ remove: () => void } | null>(null);
     const [lastWatchedEpId, setLastWatchedEpId] = useState<string | null>(null);
+    const [showLibraryModal, setShowLibraryModal] = useState(false);
+    const [inLib, setInLib] = useState(false);
 
     useEffect(() => {
         setDlMap(getLocal<Record<string, AnimeDownloadEntry>>(STORAGE_KEYS.ANIME_DOWNLOADS, {}));
         const history = getAnimeHistory();
         const entry = history.find(h => h.animeId === id);
         if (entry) setLastWatchedEpId(entry.episodeId);
+        setInLib(isInLibrary(id, 'anime'));
     }, [id]);
 
     useEffect(() => {
@@ -376,10 +382,36 @@ function AnimeDetailsInner() {
                                         </Link>
                                     );
                                 })()}
+                                <button
+                                    onClick={() => setShowLibraryModal(true)}
+                                    className="btn-secondary"
+                                    style={{ color: inLib ? "var(--sakura-pink)" : "currentColor" }}
+                                >
+                                    <svg width="18" height="18" viewBox="0 0 24 24" fill={inLib ? "currentColor" : "none"} stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                        <path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z" />
+                                    </svg>
+                                    {inLib ? "Saved" : "Save"}
+                                </button>
                             </div>
                         </div>
                     </div>
                 </div>
+
+                {showLibraryModal && anime && (
+                    <SaveToLibraryModal
+                        item={{
+                            id: anime.id,
+                            title: anime.title,
+                            image: anime.image,
+                            type: 'anime',
+                            addedAt: Date.now(),
+                        }}
+                        onClose={() => {
+                            setShowLibraryModal(false);
+                            setInLib(isInLibrary(id, 'anime'));
+                        }}
+                    />
+                )}
 
                 <section className="section" style={{ padding: "0 20px 40px" }}>
                     <div className="section-header" style={{ marginBottom: 24, paddingBottom: 16, borderBottom: "1px solid var(--border-color)" }}>
@@ -429,7 +461,7 @@ function AnimeDetailsInner() {
                                                             title="Downloaded — tap to play offline"
                                                             onClick={(e) => { e.preventDefault(); handleDownload(ep); }}
                                                         >
-                                                            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#4CAF50" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" /><polyline points="22 4 12 14.01 9 11.01" /></svg>
+                                                            <LottieIcon src="/icons/wired-outline-24-approved-checked-hover-loading.json" size={24} colorFilter="brightness(0) saturate(100%) invert(62%) sepia(61%) saturate(483%) hue-rotate(79deg) brightness(96%) contrast(92%)" playOnMount />
                                                         </button>
                                                     );
                                                 }
@@ -448,7 +480,7 @@ function AnimeDetailsInner() {
                                                         title="Download"
                                                         onClick={(e) => { e.preventDefault(); handleDownload(ep); }}
                                                     >
-                                                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="var(--sakura-pink)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline points="7 10 12 15 17 10" /><line x1="12" x2="12" y1="15" y2="3" /></svg>
+                                                        <LottieIcon src="/icons/wired-outline-199-download-2-hover-pointing.json" size={24} colorFilter="brightness(0) saturate(100%) invert(52%) sepia(74%) saturate(1057%) hue-rotate(308deg) brightness(101%) contrast(98%)" />
                                                     </button>
                                                 );
                                             })()}

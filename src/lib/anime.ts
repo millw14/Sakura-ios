@@ -1,4 +1,5 @@
-import { fetchJikanSearch, fetchJikanTrending, fetchJikanInfo } from "./jikan";
+import { fetchJikanSearch, fetchJikanTrending, fetchJikanInfo, fetchJikanByGenre, ANIME_GENRES } from "./jikan";
+export { ANIME_GENRES } from "./jikan";
 import {
     searchAnimeSource,
     getAnimeSourceEpisodes,
@@ -88,6 +89,23 @@ export async function searchAnime(query: string): Promise<AnimeResult[]> {
         mapped.unshift(PSYOP_SEARCH_RESULT);
     }
 
+    cacheSet(cacheKey, mapped, TTL_SEARCH);
+    return mapped;
+}
+
+export async function fetchAnimeByGenre(genreId: number): Promise<AnimeResult[]> {
+    const cacheKey = `genre_${genreId}`;
+    const cached = cacheGet<AnimeResult[]>(cacheKey);
+    if (cached) return cached;
+
+    const results = await fetchJikanByGenre(genreId);
+    const mapped = results.map(r => ({
+        id: String(r.mal_id),
+        title: r.title_english || r.title,
+        image: r.images?.webp?.large_image_url || r.images?.webp?.image_url,
+        type: r.type,
+        score: r.score
+    }));
     cacheSet(cacheKey, mapped, TTL_SEARCH);
     return mapped;
 }
@@ -289,12 +307,14 @@ export async function fetchEpisodeSources(episodeId: string): Promise<StreamingS
     try {
         const result = await getStreamingSources(episodeId);
         if (result && result.sources.length > 0) {
-            const qualityPriority = ['1080p', '720p', '480p', 'default'];
+            console.log(`[Anime] Available sources: ${result.sources.map(s => `${s.quality}(${s.isM3U8 ? 'hls' : 'mp4'})`).join(', ')}`);
+            const qualityPriority = ['1080p', '720p', 'default', '480p', '360p'];
             let best = result.sources[0];
             for (const q of qualityPriority) {
                 const match = result.sources.find(s => s.quality === q);
                 if (match) { best = match; break; }
             }
+            console.log(`[Anime] Selected: ${best.quality} → ${best.url.substring(0, 80)}...`);
             return {
                 url: best.url,
                 isM3U8: best.isM3U8,

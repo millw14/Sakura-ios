@@ -96,39 +96,54 @@ export interface StreamSource {
     quality: string;
 }
 
+function parseSourceResponse(data: any): {
+    sources: StreamSource[];
+    subtitles: { file: string; label?: string }[];
+    referer?: string;
+} | null {
+    const sources: StreamSource[] = (data.sources || []).map((s: any) => ({
+        url: s.url || '',
+        isM3U8: s.isM3U8 ?? true,
+        quality: s.quality || 'default',
+    })).filter((s: any) => s.url);
+
+    const ENGLISH_LANGS = ['english', 'eng', 'en', 'english (us)', 'english (uk)'];
+    const subtitles = (data.subtitles || []).map((s: any) => ({
+        file: s.url || '',
+        label: s.lang || s.label || 'Subtitle',
+    })).filter((s: any) => {
+        if (!s.file) return false;
+        const lang = (s.label || '').toLowerCase();
+        return ENGLISH_LANGS.some(e => lang.includes(e));
+    });
+
+    if (sources.length === 0) return null;
+
+    const referer = data.headers?.Referer || '';
+    return { sources, subtitles, referer };
+}
+
 export async function getStreamingSources(episodeId: string): Promise<{
     sources: StreamSource[];
     subtitles: { file: string; label?: string }[];
     referer?: string;
 } | null> {
+    const hasSlash = episodeId.includes('/');
+    const basePath = hasSlash
+        ? `/anime/${PROVIDER}/watch?episodeId=${encodeURIComponent(episodeId)}`
+        : `/anime/${PROVIDER}/watch/${encodeURIComponent(episodeId)}`;
+
     try {
-        const hasSlash = episodeId.includes('/');
-        const watchUrl = hasSlash
-            ? `/anime/${PROVIDER}/watch?episodeId=${encodeURIComponent(episodeId)}`
-            : `/anime/${PROVIDER}/watch/${encodeURIComponent(episodeId)}`;
-        const data = await consumetGet(watchUrl);
-        const sources: StreamSource[] = (data.sources || []).map((s: any) => ({
-            url: s.url || '',
-            isM3U8: s.isM3U8 ?? true,
-            quality: s.quality || 'default',
-        })).filter((s: any) => s.url);
-
-        const ENGLISH_LANGS = ['english', 'eng', 'en', 'english (us)', 'english (uk)'];
-        const subtitles = (data.subtitles || []).map((s: any) => ({
-            file: s.url || '',
-            label: s.lang || s.label || 'Subtitle',
-        })).filter((s: any) => {
-            if (!s.file) return false;
-            const lang = (s.label || '').toLowerCase();
-            return ENGLISH_LANGS.some(e => lang.includes(e));
-        });
-
-        if (sources.length === 0) return null;
-
-        const referer = data.headers?.Referer || '';
-        return { sources, subtitles, referer };
+        console.log(`[Consumet] Fetching sources for ${episodeId} (provider=${PROVIDER})`);
+        const data = await consumetGet(basePath);
+        const result = parseSourceResponse(data);
+        if (result) {
+            console.log(`[Consumet] Got ${result.sources.length} sources (qualities: ${result.sources.map(s => s.quality).join(', ')})`);
+            return result;
+        }
     } catch (e) {
         console.error(`[${PROVIDER}] Streaming sources error:`, e);
-        return null;
     }
+
+    return null;
 }

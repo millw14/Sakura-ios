@@ -59,6 +59,7 @@ Cargo.lock
 *.apk
 *.keystore
 *.jks
+android/gradle.properties
 
 # reference repos
 aniyomi-main/

@@ -2,13 +2,23 @@
 
 import { useEffect, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
+import { getLocal, STORAGE_KEYS } from "@/lib/storage";
+
+const PNL_SETTING_KEY = "sakura_pnl_tracker";
 
 export default function FloatingTradeWidget() {
     const pathname = usePathname();
     const router = useRouter();
 
-    // Only show on reading/watching pages
-    const isVisible = pathname?.startsWith("/chapter") || pathname?.startsWith("/anime/watch");
+    const isReadingPage = pathname?.startsWith("/chapter") || pathname?.startsWith("/anime/watch");
+    const [enabled, setEnabled] = useState(false);
+
+    useEffect(() => {
+        const settings = getLocal<any>(STORAGE_KEYS.SETTINGS, {});
+        setEnabled(!!settings.pnlTracker);
+    }, [pathname]);
+
+    const isVisible = isReadingPage && enabled;
 
     const [pnl, setPnl] = useState(0);
     const [flash, setFlash] = useState<"up" | "down" | null>(null);

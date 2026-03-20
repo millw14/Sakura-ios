@@ -357,6 +357,77 @@ export async function getChapterPages(chapterId: string): Promise<string[]> {
     }
 }
 
+export const MANGA_GENRES: { id: string; name: string }[] = [
+    { id: "391b0423-d847-456f-aff0-8b0cfc03066b", name: "Action" },
+    { id: "87cc87cd-a395-47af-b27a-93258283bbc6", name: "Adventure" },
+    { id: "4d32cc48-9f00-4cca-9b5a-a839f0764984", name: "Comedy" },
+    { id: "b9af3a63-f058-46de-a9a0-e0c13906197a", name: "Drama" },
+    { id: "cdc58593-87dd-415e-bbc0-2ec27bf404cc", name: "Fantasy" },
+    { id: "cdad7e68-1419-41dd-bdce-27753074a640", name: "Horror" },
+    { id: "ee968100-4191-4968-93d3-f82d72be7e46", name: "Mystery" },
+    { id: "423e2eae-a7a2-4a8b-ac03-a8351462d71d", name: "Romance" },
+    { id: "256c8bd9-4904-4f7b-a3a0-b7f5f2f28f28", name: "Sci-Fi" },
+    { id: "e5301a23-ebd9-49dd-a0cb-2add944c7fe9", name: "Slice of Life" },
+    { id: "69964a64-2f90-4d33-beeb-f3ed2875eb4c", name: "Sports" },
+    { id: "eabc5b4c-6aff-42f3-b657-3e90cbd00b75", name: "Supernatural" },
+];
+
+export async function searchMangaByGenre(tagId: string): Promise<Manga[]> {
+    const cacheKey = `genre:${tagId}`;
+    return cacheWrap(cacheKey, async () => {
+        try {
+            const params = new URLSearchParams({
+                limit: "20",
+                offset: "0",
+                "order[followedCount]": "desc",
+                hasAvailableChapters: "true",
+            });
+
+            params.append("includes[]", "cover_art");
+            params.append("includes[]", "author");
+            params.append("contentRating[]", "safe");
+            params.append("contentRating[]", "suggestive");
+            params.append("availableTranslatedLanguage[]", "en");
+            params.append("includedTags[]", tagId);
+
+            const url = `${MANGADEX_API_URL}/manga?${params.toString()}`;
+            const data = await requestMd(url);
+
+            const allManga: Manga[] = data.data.map((item: any) => {
+                const attributes = item.attributes;
+                const coverRel = item.relationships.find((r: any) => r.type === "cover_art");
+                const authorRel = item.relationships.find((r: any) => r.type === "author");
+                const coverFileName = coverRel?.attributes?.fileName;
+
+                return {
+                    id: item.id,
+                    title: attributes.title.en || Object.values(attributes.title)[0] || "Unknown Title",
+                    description: attributes.description.en || "",
+                    cover: coverFileName ? getCoverUrl(item.id, coverFileName) : "/placeholder.png",
+                    author: authorRel?.attributes?.name || "Unknown Author",
+                    authorId: authorRel?.id,
+                    tags: attributes.tags.map((t: any) => t.attributes.name.en),
+                    status: attributes.status,
+                    year: attributes.year,
+                };
+            });
+
+            const readable = await filterReadableManga(allManga.map(m => m.id));
+            const filtered = allManga.filter(m => readable.has(m.id));
+
+            const stats = await getMangaStatistics(filtered.map(m => m.id));
+            return filtered.map(m => ({
+                ...m,
+                rating: stats[m.id]?.rating?.average,
+                follows: stats[m.id]?.follows,
+            }));
+        } catch (error) {
+            console.error("MangaDex Genre Search Error:", error);
+            return [];
+        }
+    });
+}
+
 // Get Featured Manga (Curated list for Home - Dynamic Top Followed)
 export async function getFeaturedManga(): Promise<Manga[]> {
     return cacheWrap('featured', async () => {

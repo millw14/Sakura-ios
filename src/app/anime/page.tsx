@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import Header from "@/components/Header";
 import AnimeCard from "@/components/AnimeCard";
-import { searchAnime, fetchAiringAnime, type AnimeResult } from "@/lib/anime";
+import { searchAnime, fetchAiringAnime, fetchAnimeByGenre, ANIME_GENRES, type AnimeResult } from "@/lib/anime";
 import { getLocal, setLocal, STORAGE_KEYS, getAnimeHistory, type AnimeHistoryEntry } from "@/lib/storage";
 import { PSYOP_SEARCH_RESULT, matchesPsyopQuery } from "@/lib/psyopAnime";
 import Link from "next/link";
@@ -29,6 +29,9 @@ export default function AnimeBrowsePage() {
     const [error, setError] = useState<string | null>(null);
     const debouncedSearch = useDebounce(search, 800);
     const [continueWatching, setContinueWatching] = useState<AnimeHistoryEntry[]>([]);
+    const [selectedGenre, setSelectedGenre] = useState<number | null>(null);
+    const [genreResults, setGenreResults] = useState<AnimeResult[]>([]);
+    const [genreLoading, setGenreLoading] = useState(false);
 
     const [recentSearches, setRecentSearches] = useState<string[]>([]);
     const [showRecent, setShowRecent] = useState(false);
@@ -104,6 +107,18 @@ export default function AnimeBrowsePage() {
         setSearch(query);
         setShowRecent(false);
     };
+
+    const handleGenreSelect = useCallback(async (genreId: number | null) => {
+        setSelectedGenre(genreId);
+        if (!genreId) {
+            setGenreResults([]);
+            return;
+        }
+        setGenreLoading(true);
+        const results = await fetchAnimeByGenre(genreId);
+        setGenreResults(results);
+        setGenreLoading(false);
+    }, []);
 
     const isSearching = search.trim().length > 0;
 
@@ -255,6 +270,27 @@ export default function AnimeBrowsePage() {
                         )}
                     </div>
 
+                    {/* Genre Filter Chips */}
+                    {!isSearching && (
+                        <div className="genre-filters" style={{ maxWidth: 700, margin: '0 auto 24px' }}>
+                            <button
+                                className={`genre-chip ${selectedGenre === null ? 'active' : ''}`}
+                                onClick={() => handleGenreSelect(null)}
+                            >
+                                All
+                            </button>
+                            {ANIME_GENRES.map(g => (
+                                <button
+                                    key={g.id}
+                                    className={`genre-chip ${selectedGenre === g.id ? 'active' : ''}`}
+                                    onClick={() => handleGenreSelect(g.id)}
+                                >
+                                    {g.name}
+                                </button>
+                            ))}
+                        </div>
+                    )}
+
                     {/* Error */}
                     {error && (
                         <div className="error-container" style={{ margin: "40px auto", maxWidth: 600 }}>
@@ -286,8 +322,37 @@ export default function AnimeBrowsePage() {
                         </>
                     )}
 
-                    {/* Continue Watching + Airing/Trending — shown when not searching */}
-                    {!isSearching && (
+                    {/* Genre Results — shown when a genre is selected */}
+                    {!isSearching && selectedGenre !== null && (
+                        <>
+                            <div className="section-header" style={{ marginTop: 8 }}>
+                                <h2 className="section-title" style={{ fontSize: 20 }}>
+                                    {ANIME_GENRES.find(g => g.id === selectedGenre)?.name}
+                                </h2>
+                                <p className="section-subtitle">Filtered by genre</p>
+                            </div>
+                            {genreLoading ? (
+                                <div className="manga-grid" style={{ gridTemplateColumns: "repeat(2, 1fr)" }}>
+                                    {Array.from({ length: 6 }).map((_, i) => (
+                                        <div key={i} className="loading-skeleton" style={{ aspectRatio: "2/3", borderRadius: "var(--radius-md)" }} />
+                                    ))}
+                                </div>
+                            ) : genreResults.length > 0 ? (
+                                <div className="manga-grid" style={{ gridTemplateColumns: "repeat(2, 1fr)" }}>
+                                    {genreResults.map((anime) => (
+                                        <AnimeCard key={anime.id} id={anime.id} title={anime.title} image={anime.image} type={anime.type} />
+                                    ))}
+                                </div>
+                            ) : (
+                                <div style={{ textAlign: "center", padding: 60, color: "var(--text-muted)" }}>
+                                    <p style={{ fontSize: 14 }}>No anime found for this genre.</p>
+                                </div>
+                            )}
+                        </>
+                    )}
+
+                    {/* Continue Watching + Airing/Trending — shown when not searching and no genre filter */}
+                    {!isSearching && selectedGenre === null && (
                         <>
                             {continueWatching.length > 0 && (
                                 <>
@@ -302,7 +367,7 @@ export default function AnimeBrowsePage() {
                                                 href={`/anime/watch?id=${encodeURIComponent(entry.animeId)}&ep=${encodeURIComponent(entry.episodeId)}`}
                                                 style={{ textDecoration: 'none', flexShrink: 0, width: 140 }}
                                             >
-                                                <div style={{ position: 'relative', borderRadius: 'var(--radius-md)', overflow: 'hidden', aspectRatio: '2/3', background: 'rgba(255,255,255,0.05)' }}>
+                                                <div style={{ position: 'relative', borderRadius: 'var(--radius-md)', overflow: 'hidden', aspectRatio: '2/3', background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)' }}>
                                                     {/* eslint-disable-next-line @next/next/no-img-element */}
                                                     <img
                                                         src={entry.image || '/sakura.png'}

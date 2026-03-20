@@ -9,6 +9,7 @@ import Link from "next/link";
 import { getFavorites, type FavoriteManga } from "@/lib/supabase";
 import { useDownloads } from "@/lib/downloads";
 import { useMemo } from "react";
+import LottieIcon from "@/components/LottieIcon";
 
 export default function FavoritesPage() {
     const { publicKey } = useWallet();
@@ -122,7 +123,7 @@ export default function FavoritesPage() {
                                 onClick={() => setVisible(true)}
                                 style={{ marginTop: 16 }}
                             >
-                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20 12V8H6a2 2 0 0 1-2-2c0-1.1.9-2 2-2h12v4" /><path d="M4 6v12c0 1.1.9 2 2 2h14v-4" /><circle cx="18" cy="16" r="1" /></svg>
+                                <LottieIcon src="/icons/wired-outline-421-wallet-purse-hover-pinch.json" size={18} colorFilter="brightness(0) invert(1) opacity(0.7)" replayIntervalMs={3000} autoplay />
                                 Sign Up / Login
                             </button>
                         </div>

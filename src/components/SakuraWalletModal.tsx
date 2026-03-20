@@ -11,6 +11,7 @@ import { Keypair } from "@solana/web3.js";
 
 const BuySakuraModal = dynamic(() => import("@/components/BuySakuraModal"), { ssr: false });
 const TipModal = dynamic(() => import("@/components/TipModal"), { ssr: false });
+import LottieIcon from "@/components/LottieIcon";
 
 /* ─── Context ─── */
 interface SakuraWalletModalContextType {
@@ -186,11 +187,7 @@ function SakuraWalletModal({ onClose }: { onClose: () => void }) {
                 {connected && publicKey ? (
                     <div className="swm-connected">
                         <div className="swm-avatar">
-                            <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="var(--sakura-pink)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-                                <path d="M20 12V8H6a2 2 0 0 1-2-2c0-1.1.9-2 2-2h12v4" />
-                                <path d="M4 6v12c0 1.1.9 2 2 2h14v-4" />
-                                <circle cx="18" cy="16" r="1" />
-                            </svg>
+                            <LottieIcon src="/icons/wired-outline-421-wallet-purse-hover-pinch.json" size={40} colorFilter="brightness(0) saturate(100%) invert(52%) sepia(74%) saturate(1057%) hue-rotate(308deg) brightness(101%) contrast(98%)" replayIntervalMs={3000} autoplay />
                         </div>
                         <h2 className="swm-title">接続済み — Connected</h2>
                         <p className="swm-subtitle">Sakura Native Wallet</p>
@@ -271,11 +268,7 @@ function SakuraWalletModal({ onClose }: { onClose: () => void }) {
                 ) : (
                     <div className="swm-select">
                         <div className="swm-header-icon">
-                            <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="var(--sakura-pink)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-                                <path d="M20 12V8H6a2 2 0 0 1-2-2c0-1.1.9-2 2-2h12v4" />
-                                <path d="M4 6v12c0 1.1.9 2 2 2h14v-4" />
-                                <circle cx="18" cy="16" r="1" />
-                            </svg>
+                            <LottieIcon src="/icons/wired-outline-421-wallet-purse-hover-pinch.json" size={48} colorFilter="brightness(0) saturate(100%) invert(52%) sepia(74%) saturate(1057%) hue-rotate(308deg) brightness(101%) contrast(98%)" replayIntervalMs={3000} autoplay />
                         </div>
                         <h2 className="swm-title">Sign Up / Login</h2>
                         <p className="swm-subtitle">Create or import a Sakura wallet.</p>

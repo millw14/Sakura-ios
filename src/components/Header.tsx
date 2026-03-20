@@ -6,6 +6,7 @@ import { useSakuraWalletModal } from "./SakuraWalletModal";
 import { truncateAddress } from "@/lib/solana";
 import { useState, useEffect } from "react";
 import { checkPassStatus } from "@/lib/pass-check";
+import LottieIcon from "@/components/LottieIcon";
 
 export default function Header() {
     const { publicKey, disconnect, connecting } = useWallet();
@@ -50,9 +51,9 @@ export default function Header() {
                     Pass
                     <span className="jp-label">パス</span>
                 </Link>
-                <Link href="/favorites">
-                    Favorites
-                    <span className="jp-label">お気に入り</span>
+                <Link href="/library">
+                    Library
+                    <span className="jp-label">ライブラリ</span>
                 </Link>
                 <Link href="/history">
                     History
@@ -97,7 +98,17 @@ export default function Header() {
                             </svg>
                         </span>
                     )}
-                    <span className="icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={isPremium ? "var(--gold)" : "currentColor"} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20 12V8H6a2 2 0 0 1-2-2c0-1.1.9-2 2-2h12v4" /><path d="M4 6v12c0 1.1.9 2 2 2h14v-4" /><circle cx="18" cy="16" r="1" /></svg></span>
+                    <span className="icon">
+                        <LottieIcon
+                            src="/icons/wired-outline-421-wallet-purse-hover-pinch.json"
+                            size={18}
+                            colorFilter={isPremium
+                                ? "brightness(0) saturate(100%) invert(79%) sepia(48%) saturate(1000%) hue-rotate(5deg) brightness(103%) contrast(94%)"
+                                : "brightness(0) invert(1) opacity(0.7)"}
+                            replayIntervalMs={3000}
+                            autoplay
+                        />
+                    </span>
                     <span style={isPremium ? { color: "var(--gold)", fontWeight: "bold" } : {}}>
                         {publicKey ? truncateAddress(publicKey.toBase58()) : "Sign Up / Login"}
                     </span>
