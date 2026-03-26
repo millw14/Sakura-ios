@@ -40,17 +40,20 @@ function FavoriteButton({ manga }: { manga: Manga }) {
             <button
                 onClick={() => setShowLibraryModal(true)}
                 className="btn-secondary"
-                style={{ color: inLibrary ? "var(--sakura-pink)" : "currentColor" }}
+                style={{ color: inLibrary ? "#4ade80" : "currentColor", background: inLibrary ? "rgba(76,175,80,0.15)" : undefined, borderColor: inLibrary ? "rgba(76,175,80,0.3)" : undefined, display: "flex", alignItems: "center", gap: 6 }}
             >
-                <svg width="18" height="18" viewBox="0 0 24 24" fill={inLibrary ? "currentColor" : "none"} stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z" />
-                </svg>
-                {inLibrary ? "ライブラリ Saved" : "ライブラリ Save"}
+                <LottieIcon
+                    src={inLibrary ? "/icons/wired-outline-24-approved-checked-hover-loading.json" : "/icons/wired-outline-2620-bookmark-alt-hover-flutter.json"}
+                    size={22}
+                    playOnMount
+                    colorFilter={inLibrary ? "brightness(0) saturate(100%) invert(62%) sepia(61%) saturate(483%) hue-rotate(79deg) brightness(96%) contrast(92%)" : undefined}
+                />
+                {inLibrary ? "Saved" : "Save"}
             </button>
             {showLibraryModal && (
                 <SaveToLibraryModal
                     item={libraryItem}
-                    onClose={() => setShowLibraryModal(false)}
+                    onClose={() => { setShowLibraryModal(false); setInLibrary(isInLibrary(manga.id, 'manga')); }}
                 />
             )}
         </>

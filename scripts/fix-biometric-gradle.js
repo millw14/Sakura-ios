@@ -26,3 +26,18 @@ if (fs.existsSync(gradlePath)) {
 } else {
     console.warn('Could not find capacitor-native-biometric/android/build.gradle. It may not be installed.');
 }
+
+const ttsGradlePath = path.resolve(__dirname, '../node_modules/@capacitor-community/text-to-speech/android/build.gradle');
+
+if (fs.existsSync(ttsGradlePath)) {
+    let content = fs.readFileSync(ttsGradlePath, 'utf8');
+    if (content.includes("proguard-android.txt")) {
+        content = content.replace(/proguard-android\.txt/g, 'proguard-android-optimize.txt');
+        fs.writeFileSync(ttsGradlePath, content, 'utf8');
+        console.log('Successfully patched @capacitor-community/text-to-speech/android/build.gradle');
+    } else {
+        console.log('@capacitor-community/text-to-speech/android/build.gradle is already patched.');
+    }
+} else {
+    console.warn('Could not find @capacitor-community/text-to-speech/android/build.gradle. It may not be installed.');
+}

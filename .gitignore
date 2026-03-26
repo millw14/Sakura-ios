@@ -64,6 +64,11 @@ android/gradle.properties
 # reference repos
 aniyomi-main/
 
+# backend
+backend/node_modules/
+backend/dist/
+backend/.env
+
 # private source providers
 src/lib/sources/hianime.ts
 src/lib/sources/megacloud.ts

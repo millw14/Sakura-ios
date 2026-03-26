@@ -11,6 +11,7 @@ import { checkPassStatus } from "@/lib/pass-check";
 import { searchCreators, type CreatorProfile } from "@/lib/creator";
 import Link from "next/link";
 import LottieIcon from "@/components/LottieIcon";
+import { schedulePushSettings } from "@/lib/cloud-sync";
 
 type ReadingMode = 'scroll' | 'page';
 
@@ -104,6 +105,7 @@ export default function SettingsPage() {
     const updateSetting = (key: string, val: any) => {
         const current = getLocal(STORAGE_KEYS.SETTINGS, {});
         setLocal(STORAGE_KEYS.SETTINGS, { ...current, [key]: val });
+        const w = publicKey?.toBase58(); if (w) schedulePushSettings(w);
     };
 
     const toggleDataSaver = (val: boolean) => {

@@ -6744,6 +6744,20 @@ body {
 @keyframes bsm-slide-up { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
 @keyframes bsm-spin { to { transform: rotate(360deg); } }
 
+/* ── Novel Reader: force font inheritance on scraped HTML ── */
+.reader-content * {
+  font-family: inherit !important;
+}
+
+/* ── Focus Mode (Novel Reader) ── */
+.reader-content.focus-mode-on > * {
+  opacity: 0.45;
+  transition: opacity 0.3s ease;
+}
+.reader-content.focus-mode-on > .reader-focused {
+  opacity: 1;
+}
+
 @keyframes fade-in {
   from { opacity: 0; }
   to { opacity: 1; }

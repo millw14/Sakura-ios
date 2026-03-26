@@ -37,23 +37,9 @@ export default function MonthlyPassPage() {
         }
     }, [publicKey]);
 
-    // Check Percolator Crank Staleness (Simulated for this implementation, typically read from slab)
     useEffect(() => {
-        const checkCrank = async () => {
-            setCheckingCrank(true);
-            try {
-                // In production, fetch the slab from PERCOLATOR_PROGRAM and compare lastCrankSlot 
-                // to connection.getSlot(). Here we simulate a 10% chance of being stale for testing.
-                const isStale = Math.random() < 0.1;
-                setCrankStale(isStale);
-            } catch (error) {
-                console.error("Failed to check crank", error);
-            }
-            setCheckingCrank(false);
-        };
-        checkCrank();
-        const interval = setInterval(checkCrank, 15000); // Check every 15s
-        return () => clearInterval(interval);
+        setCrankStale(false);
+        setCheckingCrank(false);
     }, []);
 
     const handlePurchase = async () => {
@@ -288,7 +274,7 @@ export default function MonthlyPassPage() {
                                     marginTop: 12,
                                 }}
                             >
-                                Requires $SAKURA token balance on Solana Devnet
+                                Requires $SAKURA token balance on Solana
                             </p>
                         )}
                     </div>

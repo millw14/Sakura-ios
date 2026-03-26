@@ -74,6 +74,20 @@ export async function buildDepositTx(
 
     const transaction = new Transaction();
 
+    const userAtaInfo = await connection.getAccountInfo(userAta);
+    if (!userAtaInfo) {
+        transaction.add(
+            createAssociatedTokenAccountInstruction(
+                userWallet,
+                userAta,
+                userWallet,
+                SAKURA_MINT,
+                TOKEN_PROGRAM_ID,
+                ASSOCIATED_TOKEN_PROGRAM_ID
+            )
+        );
+    }
+
     const ataInfo = await connection.getAccountInfo(receiverAta);
     if (!ataInfo) {
         transaction.add(
