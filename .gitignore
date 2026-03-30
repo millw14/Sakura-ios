@@ -73,6 +73,7 @@ backend/.env
 *.md
 !TERMS.md
 !PRIVACY.md
+!COPYRIGHT.md
 supabase*.sql
 comments_schema.sql
 
