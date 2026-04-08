@@ -46,36 +46,47 @@ function getCoverUrl(mangaId: string, filename: string) {
 }
 
 /**
- * Checks which manga IDs have actual readable chapters (not just DMCA'd stubs
- * with 0 pages or external-only links). Uses the feed endpoint to sample
- * recent chapters and verify at least one has pages > 0.
+ * Checks which manga IDs have at least one readable chapter (pages > 0, no external URL).
+ * Processes in small sequential batches to avoid MangaDex rate limits.
  */
 async function filterReadableManga(mangaIds: string[]): Promise<Set<string>> {
     const readable = new Set<string>();
-    const checks = mangaIds.map(async (id) => {
-        try {
-            const params = new URLSearchParams({
-                limit: "5",
-                "order[chapter]": "desc",
-            });
-            params.append("translatedLanguage[]", "en");
-            params.append("contentRating[]", "safe");
-            params.append("contentRating[]", "suggestive");
+    const BATCH = 3;
 
-            const url = `${MANGADEX_API_URL}/manga/${id}/feed?${params.toString()}`;
-            const data = await requestMd(url);
+    for (let i = 0; i < mangaIds.length; i += BATCH) {
+        const batch = mangaIds.slice(i, i + BATCH);
 
-            const hasReadable = data.data?.some(
-                (ch: any) => ch.attributes.pages > 0 && !ch.attributes.externalUrl
-            );
-            if (hasReadable) {
-                readable.add(id);
+        const results = await Promise.all(batch.map(async (id) => {
+            try {
+                const params = new URLSearchParams({
+                    limit: "5",
+                    "order[chapter]": "desc",
+                });
+                params.append("translatedLanguage[]", "en");
+                params.append("contentRating[]", "safe");
+                params.append("contentRating[]", "suggestive");
+
+                const url = `${MANGADEX_API_URL}/manga/${id}/feed?${params.toString()}`;
+                const data = await requestMd(url);
+
+                const hasReadable = data.data?.some(
+                    (ch: any) => ch.attributes.pages > 0 && !ch.attributes.externalUrl
+                );
+                return hasReadable ? id : null;
+            } catch {
+                return id;
             }
-        } catch {
-            readable.add(id);
+        }));
+
+        for (const id of results) {
+            if (id) readable.add(id);
         }
-    });
-    await Promise.all(checks);
+
+        if (i + BATCH < mangaIds.length) {
+            await new Promise(r => setTimeout(r, 350));
+        }
+    }
+
     return readable;
 }
 
@@ -268,9 +279,8 @@ export async function getChapters(mangaId: string, limit = 100, offset = 0): Pro
             const url = `${MANGADEX_API_URL}/chapter?${params.toString()}`;
             const data = await requestMd(url);
 
-            return data.data
+            const mapped = data.data
                 .map((item: any) => {
-                    // Check for official Bilibili Comics takedowns which were replaced by MangaDex placeholders
                     const isBilibiliTakedown = item.relationships?.some(
                         (rel: any) => rel.type === 'scanlation_group' && rel.id === '17fb59e5-718c-4a1a-935d-d80dba70454a'
                     );
@@ -286,9 +296,21 @@ export async function getChapters(mangaId: string, limit = 100, offset = 0): Pro
                     };
                 })
                 .filter((c: any) => {
-                    if (c.externalUrl) return true;
-                    return c.pages > 0;
+                    if (c.pages <= 0 && !c.externalUrl) return false;
+                    return true;
                 });
+
+            // De-duplicate chapters: when multiple uploads exist for the same chapter number, keep the one with the most pages
+            const deduped = new Map<string, any>();
+            for (const ch of mapped) {
+                const key = ch.chapter ?? ch.id;
+                const existing = deduped.get(key);
+                if (!existing || ch.pages > (existing.pages || 0)) {
+                    deduped.set(key, ch);
+                }
+            }
+
+            return Array.from(deduped.values());
         } catch (error) {
             console.error("MangaDex Chapters Error:", error);
             return [];
@@ -433,15 +455,16 @@ export async function getFeaturedManga(): Promise<Manga[]> {
     return cacheWrap('featured', async () => {
         try {
             const params = new URLSearchParams({
-                limit: "12",
+                limit: "20",
                 offset: "0",
                 "order[followedCount]": "desc",
-                "contentRating[]": "safe",
                 hasAvailableChapters: "true",
             });
 
             params.append("includes[]", "cover_art");
             params.append("includes[]", "author");
+            params.append("contentRating[]", "safe");
+            params.append("contentRating[]", "suggestive");
             params.append("availableTranslatedLanguage[]", "en");
 
             const url = `${MANGADEX_API_URL}/manga?${params.toString()}`;
@@ -467,10 +490,10 @@ export async function getFeaturedManga(): Promise<Manga[]> {
             });
 
             const readable = await filterReadableManga(allManga.map((m: any) => m.id));
-            const mangaList = allManga.filter((m: any) => readable.has(m.id));
+            const filtered = allManga.filter((m: any) => readable.has(m.id));
 
-            const stats = await getMangaStatistics(mangaList.map((m: any) => m.id));
-            return mangaList.map((m: any) => ({
+            const stats = await getMangaStatistics(filtered.map((m: any) => m.id));
+            return filtered.map((m: any) => ({
                 ...m,
                 rating: stats[m.id]?.rating?.average,
                 follows: stats[m.id]?.follows
