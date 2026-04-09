@@ -55,11 +55,11 @@ build.log
 /target/
 Cargo.lock
 
-# Release APK & signing keys
-*.apk
-*.keystore
-*.jks
-android/gradle.properties
+# iOS signing artifacts
+*.p12
+*.mobileprovision
+*.p8
+ExportOptions.plist
 
 # reference repos
 aniyomi-main/
@@ -80,6 +80,3 @@ comments_schema.sql
 # private source providers
 src/lib/sources/hianime.ts
 src/lib/sources/megacloud.ts
-android/app/src/main/java/com/millw14/sakura/anime/AnimeScraper.kt
-android/app/src/main/java/com/millw14/sakura/anime/WebViewExtractor.kt
-android/app/src/main/java/com/millw14/sakura/anime/CloudflareBypass.kt
