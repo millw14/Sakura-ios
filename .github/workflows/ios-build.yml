@@ -131,8 +131,9 @@ jobs:
           retention-days: 30
 
       - name: Upload to TestFlight
-        if: ${{ secrets.APPSTORE_API_KEY_BASE64 != '' }}
+        if: env.HAS_APPSTORE_KEY != ''
         env:
+          HAS_APPSTORE_KEY: ${{ secrets.APPSTORE_API_KEY_BASE64 }}
           APPSTORE_API_KEY_BASE64: ${{ secrets.APPSTORE_API_KEY_BASE64 }}
           APPSTORE_API_KEY_ID: ${{ secrets.APPSTORE_API_KEY_ID }}
           APPSTORE_API_ISSUER_ID: ${{ secrets.APPSTORE_API_ISSUER_ID }}
