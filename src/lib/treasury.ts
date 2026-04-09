@@ -8,7 +8,7 @@ import {
     getAssociatedTokenAddress,
     createTransferInstruction,
     createAssociatedTokenAccountInstruction,
-    TOKEN_PROGRAM_ID,
+    TOKEN_2022_PROGRAM_ID,
     ASSOCIATED_TOKEN_PROGRAM_ID,
 } from "@solana/spl-token";
 import {
@@ -28,7 +28,7 @@ export async function getTreasuryTokenAccount(): Promise<PublicKey> {
         SAKURA_MINT,
         SAKURA_TREASURY_ADMIN,
         false,
-        TOKEN_PROGRAM_ID,
+        TOKEN_2022_PROGRAM_ID,
         ASSOCIATED_TOKEN_PROGRAM_ID
     );
 }
@@ -60,7 +60,7 @@ export async function buildDepositTx(
         SAKURA_MINT,
         receiver,
         false,
-        TOKEN_PROGRAM_ID,
+        TOKEN_2022_PROGRAM_ID,
         ASSOCIATED_TOKEN_PROGRAM_ID
     );
 
@@ -68,11 +68,25 @@ export async function buildDepositTx(
         SAKURA_MINT,
         userWallet,
         true,
-        TOKEN_PROGRAM_ID,
+        TOKEN_2022_PROGRAM_ID,
         ASSOCIATED_TOKEN_PROGRAM_ID
     );
 
     const transaction = new Transaction();
+
+    const userAtaInfo = await connection.getAccountInfo(userAta);
+    if (!userAtaInfo) {
+        transaction.add(
+            createAssociatedTokenAccountInstruction(
+                userWallet,
+                userAta,
+                userWallet,
+                SAKURA_MINT,
+                TOKEN_2022_PROGRAM_ID,
+                ASSOCIATED_TOKEN_PROGRAM_ID
+            )
+        );
+    }
 
     const ataInfo = await connection.getAccountInfo(receiverAta);
     if (!ataInfo) {
@@ -82,7 +96,7 @@ export async function buildDepositTx(
                 receiverAta,
                 receiver,
                 SAKURA_MINT,
-                TOKEN_PROGRAM_ID,
+                TOKEN_2022_PROGRAM_ID,
                 ASSOCIATED_TOKEN_PROGRAM_ID
             )
         );
@@ -96,7 +110,7 @@ export async function buildDepositTx(
             userWallet,
             amountSmallest,
             [],
-            TOKEN_PROGRAM_ID
+            TOKEN_2022_PROGRAM_ID
         )
     );
 
@@ -136,7 +150,7 @@ export async function getWalletSakuraBalance(walletAddress: string): Promise<num
             SAKURA_MINT,
             wallet,
             false,
-            TOKEN_PROGRAM_ID,
+            TOKEN_2022_PROGRAM_ID,
             ASSOCIATED_TOKEN_PROGRAM_ID
         );
         const info = await connection.getTokenAccountBalance(ata);

@@ -8,7 +8,8 @@ import {
 } from "@solana/web3.js";
 import {
     getAssociatedTokenAddress,
-    TOKEN_PROGRAM_ID,
+    TOKEN_2022_PROGRAM_ID,
+    ASSOCIATED_TOKEN_PROGRAM_ID,
     createTransferInstruction,
     createAssociatedTokenAccountInstruction
 } from "@solana/spl-token";
@@ -92,7 +93,10 @@ export async function payForMonthlyPass(
 
         const vaultTokenAccount = await getAssociatedTokenAddress(
             SAKURA_MINT,
-            PERCOLATOR_INSURANCE_VAULT
+            PERCOLATOR_INSURANCE_VAULT,
+            false,
+            TOKEN_2022_PROGRAM_ID,
+            ASSOCIATED_TOKEN_PROGRAM_ID
         );
 
         const transaction = new Transaction();
@@ -105,7 +109,9 @@ export async function payForMonthlyPass(
                     walletPublicKey,
                     vaultTokenAccount,
                     PERCOLATOR_INSURANCE_VAULT,
-                    SAKURA_MINT
+                    SAKURA_MINT,
+                    TOKEN_2022_PROGRAM_ID,
+                    ASSOCIATED_TOKEN_PROGRAM_ID
                 )
             );
         }
@@ -117,10 +123,12 @@ export async function payForMonthlyPass(
 
         transaction.add(
             createTransferInstruction(
-                userTokenAccount, // source
-                vaultTokenAccount, // destination token account
-                walletPublicKey, // owner
-                amountWithDecimals // amount
+                userTokenAccount,
+                vaultTokenAccount,
+                walletPublicKey,
+                amountWithDecimals,
+                [],
+                TOKEN_2022_PROGRAM_ID
             )
         );
 
@@ -159,19 +167,24 @@ export async function payForHighlightComment(
     signTransaction: (tx: Transaction) => Promise<Transaction>
 ): Promise<PaymentResult> {
     try {
-        const { createTransferInstruction, createAssociatedTokenAccountInstruction } = await import("@solana/spl-token");
         const connection = getConnection();
 
         const HIGHLIGHT_FEE = 50;
 
         const userTokenAccount = await getAssociatedTokenAddress(
             SAKURA_MINT,
-            walletPublicKey
+            walletPublicKey,
+            false,
+            TOKEN_2022_PROGRAM_ID,
+            ASSOCIATED_TOKEN_PROGRAM_ID
         );
 
         const vaultTokenAccount = await getAssociatedTokenAddress(
             SAKURA_MINT,
-            PERCOLATOR_INSURANCE_VAULT
+            PERCOLATOR_INSURANCE_VAULT,
+            false,
+            TOKEN_2022_PROGRAM_ID,
+            ASSOCIATED_TOKEN_PROGRAM_ID
         );
 
         const transaction = new Transaction();
@@ -184,7 +197,9 @@ export async function payForHighlightComment(
                     walletPublicKey,
                     vaultTokenAccount,
                     PERCOLATOR_INSURANCE_VAULT,
-                    SAKURA_MINT
+                    SAKURA_MINT,
+                    TOKEN_2022_PROGRAM_ID,
+                    ASSOCIATED_TOKEN_PROGRAM_ID
                 )
             );
         }
@@ -196,7 +211,9 @@ export async function payForHighlightComment(
                 userTokenAccount,
                 vaultTokenAccount,
                 walletPublicKey,
-                amountWithDecimals
+                amountWithDecimals,
+                [],
+                TOKEN_2022_PROGRAM_ID
             )
         );
 

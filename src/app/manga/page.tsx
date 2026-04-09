@@ -5,7 +5,7 @@ import Header from "@/components/Header";
 import MangaCard from "@/components/MangaCard";
 import { searchAllSources } from "@/lib/sources";
 import { type Manga } from "@/lib/sources/types";
-import { getLocal, setLocal, STORAGE_KEYS } from "@/lib/storage";
+import { getLocal, setLocal, setLocalAndSyncSearches, STORAGE_KEYS } from "@/lib/storage";
 import { MANGA_GENRES, searchMangaByGenre } from "@/lib/mangadex";
 
 // Debounce hook for search
@@ -61,21 +61,19 @@ export default function BrowsePage() {
         const existing = getLocal<string[]>(STORAGE_KEYS.RECENT_SEARCHES, []);
         const filtered = existing.filter(s => s.toLowerCase() !== trimmed.toLowerCase());
         const updated = [trimmed, ...filtered].slice(0, MAX_RECENT_SEARCHES);
-        setLocal(STORAGE_KEYS.RECENT_SEARCHES, updated);
+        setLocalAndSyncSearches(STORAGE_KEYS.RECENT_SEARCHES, updated);
         setRecentSearches(updated);
     }, []);
 
-    // Remove a recent search
     const removeRecentSearch = useCallback((query: string) => {
         const existing = getLocal<string[]>(STORAGE_KEYS.RECENT_SEARCHES, []);
         const updated = existing.filter(s => s !== query);
-        setLocal(STORAGE_KEYS.RECENT_SEARCHES, updated);
+        setLocalAndSyncSearches(STORAGE_KEYS.RECENT_SEARCHES, updated);
         setRecentSearches(updated);
     }, []);
 
-    // Clear all recent searches
     const clearRecentSearches = useCallback(() => {
-        setLocal(STORAGE_KEYS.RECENT_SEARCHES, []);
+        setLocalAndSyncSearches(STORAGE_KEYS.RECENT_SEARCHES, []);
         setRecentSearches([]);
     }, []);
 

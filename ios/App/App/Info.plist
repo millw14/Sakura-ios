@@ -62,5 +62,7 @@
 	</array>
 	<key>NSPhotoLibraryAddUsageDescription</key>
 	<string>Sakura needs access to save downloaded episodes to your photo library.</string>
+	<key>NSFaceIDUsageDescription</key>
+	<string>Sakura needs Face ID to securely authenticate and unlock your wallet.</string>
 </dict>
 </plist>
