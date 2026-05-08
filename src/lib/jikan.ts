@@ -15,8 +15,8 @@ export interface JikanAnime {
     synopsis: string;
     status: string;
     type: string;
-    year: number;
-    score: number;
+    year: number | null;
+    score: number | null;
     genres: { name: string }[];
 }
 
@@ -58,6 +58,16 @@ export async function fetchJikanTrending(): Promise<JikanAnime[]> {
         return data.data || [];
     } catch (e) {
         console.error("Jikan Trending Error", e);
+        return [];
+    }
+}
+
+export async function fetchJikanPopular(): Promise<JikanAnime[]> {
+    try {
+        const data = await requestJikan(`${JIKAN_API}/top/anime?filter=bypopularity&limit=15`);
+        return data.data || [];
+    } catch (e) {
+        console.error("Jikan Popular Error", e);
         return [];
     }
 }

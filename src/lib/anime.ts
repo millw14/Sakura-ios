@@ -1,5 +1,6 @@
-import { fetchJikanSearch, fetchJikanTrending, fetchJikanInfo, fetchJikanByGenre, ANIME_GENRES } from "./jikan";
+import { fetchJikanSearch, fetchJikanTrending, fetchJikanPopular, fetchJikanInfo, fetchJikanByGenre, ANIME_GENRES } from "./jikan";
 export { ANIME_GENRES } from "./jikan";
+import { alTrending, alPopular, alSearch, alByGenre, type SimpleAnime } from "./anilist";
 import {
     searchAnimeSource,
     getAnimeSourceEpisodes,
@@ -18,7 +19,7 @@ export interface AnimeResult {
     image?: string;
     type?: string;
     releaseDate?: string;
-    score?: number;
+    score?: number | null;
     year?: number | null;
 }
 
@@ -33,6 +34,10 @@ export interface AnimeInfo extends AnimeResult {
         title: string;
         image?: string;
     }[];
+}
+
+function simpleToResult(a: SimpleAnime): AnimeResult {
+    return { id: String(a.mal_id), title: a.title, image: a.image, type: a.type, score: a.score, year: a.year };
 }
 
 export interface StreamingSource {
@@ -79,21 +84,33 @@ export async function searchAnime(query: string): Promise<AnimeResult[]> {
     const cached = cacheGet<AnimeResult[]>(cacheKey);
     if (cached) return cached;
 
-    const results = await fetchJikanSearch(query);
-    const mapped: AnimeResult[] = results.map(r => ({
-        id: String(r.mal_id),
-        title: r.title_english || r.title,
-        image: r.images?.webp?.large_image_url || r.images?.webp?.image_url,
-        type: r.type,
-        releaseDate: r.year ? String(r.year) : undefined,
-        score: r.score
-    }));
+    let mapped: AnimeResult[] = [];
+
+    try {
+        const al = await alSearch(query);
+        if (al.length > 0) mapped = al.map(simpleToResult);
+    } catch (e) {
+        console.warn("[searchAnime] AniList failed:", (e as any)?.message);
+    }
+
+    if (mapped.length === 0) {
+        try {
+            const results = await fetchJikanSearch(query);
+            mapped = results.map((r) => ({
+                id: String(r.mal_id), title: r.title_english || r.title,
+                image: r.images?.webp?.large_image_url || r.images?.webp?.image_url,
+                type: r.type, score: r.score, year: r.year ?? null,
+            }));
+        } catch (e) {
+            console.warn("[searchAnime] Jikan also failed:", (e as any)?.message);
+        }
+    }
 
     if (matchesPsyopQuery(query)) {
         mapped.unshift(PSYOP_SEARCH_RESULT);
     }
 
-    cacheSet(cacheKey, mapped, TTL_SEARCH);
+    if (mapped.length > 0) cacheSet(cacheKey, mapped, TTL_SEARCH);
     return mapped;
 }
 
@@ -102,15 +119,32 @@ export async function fetchAnimeByGenre(genreId: number): Promise<AnimeResult[]>
     const cached = cacheGet<AnimeResult[]>(cacheKey);
     if (cached) return cached;
 
-    const results = await fetchJikanByGenre(genreId);
-    const mapped = results.map(r => ({
-        id: String(r.mal_id),
-        title: r.title_english || r.title,
-        image: r.images?.webp?.large_image_url || r.images?.webp?.image_url,
-        type: r.type,
-        score: r.score
-    }));
-    cacheSet(cacheKey, mapped, TTL_SEARCH);
+    const genreName = ANIME_GENRES.find(g => g.id === genreId)?.name;
+    let mapped: AnimeResult[] = [];
+
+    if (genreName) {
+        try {
+            const al = await alByGenre(genreName);
+            if (al.length > 0) mapped = al.map(simpleToResult);
+        } catch (e) {
+            console.warn("[fetchAnimeByGenre] AniList failed:", (e as any)?.message);
+        }
+    }
+
+    if (mapped.length === 0) {
+        try {
+            const results = await fetchJikanByGenre(genreId);
+            mapped = results.map((r) => ({
+                id: String(r.mal_id), title: r.title_english || r.title,
+                image: r.images?.webp?.large_image_url || r.images?.webp?.image_url,
+                type: r.type, score: r.score, year: r.year ?? null,
+            }));
+        } catch (e) {
+            console.warn("[fetchAnimeByGenre] Jikan also failed:", (e as any)?.message);
+        }
+    }
+
+    if (mapped.length > 0) cacheSet(cacheKey, mapped, TTL_SEARCH);
     return mapped;
 }
 
@@ -119,15 +153,60 @@ export async function fetchAiringAnime(): Promise<AnimeResult[]> {
     const cached = cacheGet<AnimeResult[]>(cacheKey);
     if (cached) return cached;
 
-    const results = await fetchJikanTrending();
-    const mapped = results.map(r => ({
-        id: String(r.mal_id),
-        title: r.title_english || r.title,
-        image: r.images?.webp?.large_image_url || r.images?.webp?.image_url,
-        type: 'Trending',
-        score: r.score
-    }));
-    cacheSet(cacheKey, mapped, TTL_TRENDING);
+    let mapped: AnimeResult[] = [];
+
+    try {
+        const al = await alTrending();
+        if (al.length > 0) mapped = al.map(simpleToResult);
+    } catch (e) {
+        console.warn("[fetchAiringAnime] AniList failed:", (e as any)?.message);
+    }
+
+    if (mapped.length === 0) {
+        try {
+            const results = await fetchJikanTrending();
+            mapped = results.map((r) => ({
+                id: String(r.mal_id), title: r.title_english || r.title,
+                image: r.images?.webp?.large_image_url || r.images?.webp?.image_url,
+                type: "Trending", score: r.score,
+            }));
+        } catch (e) {
+            console.warn("[fetchAiringAnime] Jikan also failed:", (e as any)?.message);
+        }
+    }
+
+    if (mapped.length > 0) cacheSet(cacheKey, mapped, TTL_TRENDING);
+    return mapped;
+}
+
+export async function fetchPopularAnime(): Promise<AnimeResult[]> {
+    const cacheKey = "popular";
+    const cached = cacheGet<AnimeResult[]>(cacheKey);
+    if (cached) return cached;
+
+    let mapped: AnimeResult[] = [];
+
+    try {
+        const al = await alPopular();
+        if (al.length > 0) mapped = al.map(simpleToResult);
+    } catch (e) {
+        console.warn("[fetchPopularAnime] AniList failed:", (e as any)?.message);
+    }
+
+    if (mapped.length === 0) {
+        try {
+            const results = await fetchJikanPopular();
+            mapped = results.map((r) => ({
+                id: String(r.mal_id), title: r.title_english || r.title,
+                image: r.images?.webp?.large_image_url || r.images?.webp?.image_url,
+                type: r.type, score: r.score, year: r.year ?? null,
+            }));
+        } catch (e) {
+            console.warn("[fetchPopularAnime] Jikan also failed:", (e as any)?.message);
+        }
+    }
+
+    if (mapped.length > 0) cacheSet(cacheKey, mapped, TTL_TRENDING);
     return mapped;
 }
 
@@ -284,7 +363,7 @@ export async function fetchAnimeInfo(id: string): Promise<AnimeInfo | null> {
         description: jikanData.synopsis,
         status: jikanData.status,
         genres: jikanData.genres?.map(g => g.name) || [],
-        score: jikanData.score,
+        score: jikanData.score ?? undefined,
         episodes
     };
     if (episodes.length > 0) {
@@ -322,7 +401,7 @@ export async function refreshAnimeInfo(id: string): Promise<AnimeInfo | null> {
         description: jikanData.synopsis,
         status: jikanData.status,
         genres: jikanData.genres?.map(g => g.name) || [],
-        score: jikanData.score,
+        score: jikanData.score ?? undefined,
         episodes
     };
     if (episodes.length > 0) {
