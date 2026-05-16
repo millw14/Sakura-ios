@@ -2,6 +2,7 @@ import { Chapter, Manga, MangaSource } from "../types";
 import { MANGA_SOURCE_IDS } from "../source-ids";
 import { buildSourceCacheKey } from "../source-scope";
 import { cacheWrap } from "../../cache";
+import { Capacitor, CapacitorHttp } from "@capacitor/core";
 
 /**
  * Sakura Comics source adapter (XOXO Comics-backed).
@@ -47,6 +48,25 @@ type ProxyPagesResponse = { pages?: string[]; images?: string[] };
 
 async function requestProxy<T>(path: string, init?: RequestInit): Promise<T> {
     const url = `${COMICS_PROXY_BASE.replace(/\/+$/, "")}${path}`;
+    if (Capacitor.isNativePlatform()) {
+        const response = await CapacitorHttp.get({
+            url,
+            headers: {
+                Accept: "application/json",
+                ...(init?.headers as Record<string, string> | undefined),
+            },
+            connectTimeout: 15000,
+            readTimeout: 20000,
+        });
+        if (response.status >= 400) {
+            const body = typeof response.data === "string"
+                ? response.data.slice(0, 240)
+                : JSON.stringify(response.data).slice(0, 240);
+            throw new Error(`Comics proxy HTTP ${response.status} for ${path}: ${body}`);
+        }
+        return (typeof response.data === "string" ? JSON.parse(response.data) : response.data) as T;
+    }
+
     const res = await fetch(url, {
         ...init,
         headers: {
@@ -55,7 +75,8 @@ async function requestProxy<T>(path: string, init?: RequestInit): Promise<T> {
         },
     });
     if (!res.ok) {
-        throw new Error(`Comics proxy HTTP ${res.status} for ${path}`);
+        const body = await res.text().catch(() => "");
+        throw new Error(`Comics proxy HTTP ${res.status} for ${path}: ${body.slice(0, 240)}`);
     }
     return (await res.json()) as T;
 }
