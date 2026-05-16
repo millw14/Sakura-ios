@@ -9,6 +9,7 @@ import { getLocal, setLocal, setLocalAndSyncSearches, STORAGE_KEYS } from "@/lib
 import { MANGA_GENRES, searchMangaByGenre } from "@/lib/content-source";
 import { getDefaultMangaSourceId } from "@/lib/sources/source-ids";
 import { sourceSupportsStats } from "@/lib/sources/source-meta";
+import { COMICS_BROWSE_COMING_SOON } from "@/lib/feature-flags";
 
 type BrowseMode = "manga" | "comic";
 const BROWSE_MODE_KEY = "sakura_browse_mode";
@@ -49,12 +50,18 @@ export default function BrowsePage() {
     useEffect(() => {
         setRecentSearches(getLocal<string[]>(STORAGE_KEYS.RECENT_SEARCHES, []));
         const savedMode = getLocal<BrowseMode>(BROWSE_MODE_KEY, "manga");
+        if (COMICS_BROWSE_COMING_SOON && savedMode === "comic") {
+            setMode("manga");
+            setLocal(BROWSE_MODE_KEY, "manga");
+            return;
+        }
         if (savedMode === "comic" || savedMode === "manga") {
             setMode(savedMode);
         }
     }, []);
 
     const handleModeChange = useCallback((next: BrowseMode) => {
+        if (COMICS_BROWSE_COMING_SOON && next === "comic") return;
         setMode(next);
         setLocal(BROWSE_MODE_KEY, next);
         setSearch("");
@@ -191,23 +198,28 @@ export default function BrowsePage() {
                         }}
                     >
                         {(["manga", "comic"] as BrowseMode[]).map((m) => {
-                            const active = mode === m;
+                            const comicLocked = COMICS_BROWSE_COMING_SOON && m === "comic";
+                            const active = mode === m && !comicLocked;
                             return (
                                 <button
                                     key={m}
                                     role="tab"
+                                    type="button"
                                     aria-selected={active}
+                                    disabled={comicLocked}
+                                    title={comicLocked ? "Comics — coming soon" : undefined}
                                     onClick={() => handleModeChange(m)}
                                     style={{
                                         flex: 1,
                                         padding: "10px 16px",
                                         borderRadius: 999,
                                         border: "none",
-                                        cursor: "pointer",
+                                        cursor: comicLocked ? "not-allowed" : "pointer",
                                         fontWeight: 700,
                                         fontSize: 13,
                                         letterSpacing: 0.3,
                                         color: active ? "#fff" : "var(--text-muted)",
+                                        opacity: comicLocked ? 0.55 : 1,
                                         background: active
                                             ? (m === "comic"
                                                 ? "linear-gradient(135deg, rgba(14,165,233,0.85), rgba(34,211,238,0.85))"
@@ -216,7 +228,14 @@ export default function BrowsePage() {
                                         transition: "all 0.2s ease",
                                     }}
                                 >
-                                    {m === "comic" ? "Comics" : "Manga"}
+                                    {m === "comic" ? (
+                                        <span style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 2, lineHeight: 1.15 }}>
+                                            <span>Comics</span>
+                                            <span style={{ fontSize: 10, fontWeight: 600, opacity: 0.9 }}>Coming soon</span>
+                                        </span>
+                                    ) : (
+                                        "Manga"
+                                    )}
                                 </button>
                             );
                         })}

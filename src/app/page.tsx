@@ -13,6 +13,7 @@ import { useRouter } from "next/navigation";
 import { getLocal, setLocal } from "@/lib/storage";
 import LottieIcon from "@/components/LottieIcon";
 import { getDefaultMangaSourceId, getHomeMangaSourceId, getPrimaryComicSourceId } from "@/lib/sources/source-ids";
+import { COMICS_BROWSE_COMING_SOON } from "@/lib/feature-flags";
 
 type BrowseMode = "manga" | "comic";
 const BROWSE_MODE_KEY = "sakura_browse_mode";
@@ -37,10 +38,16 @@ export default function Home() {
 
   useEffect(() => {
     const saved = getLocal<BrowseMode>(BROWSE_MODE_KEY, "manga");
+    if (COMICS_BROWSE_COMING_SOON && saved === "comic") {
+      setMode("manga");
+      setLocal(BROWSE_MODE_KEY, "manga");
+      return;
+    }
     if (saved === "comic" || saved === "manga") setMode(saved);
   }, []);
 
   const handleModeChange = useCallback((next: BrowseMode) => {
+    if (COMICS_BROWSE_COMING_SOON && next === "comic") return;
     setMode(next);
     setLocal(BROWSE_MODE_KEY, next);
     setSearchQuery("");
@@ -139,23 +146,28 @@ export default function Home() {
             }}
           >
             {(["manga", "comic"] as BrowseMode[]).map((m) => {
-              const active = mode === m;
+              const comicLocked = COMICS_BROWSE_COMING_SOON && m === "comic";
+              const active = mode === m && !comicLocked;
               return (
                 <button
                   key={m}
                   role="tab"
+                  type="button"
                   aria-selected={active}
+                  disabled={comicLocked}
+                  title={comicLocked ? "Comics — coming soon" : undefined}
                   onClick={() => handleModeChange(m)}
                   style={{
                     flex: 1,
                     padding: "10px 16px",
                     borderRadius: 999,
                     border: "none",
-                    cursor: "pointer",
+                    cursor: comicLocked ? "not-allowed" : "pointer",
                     fontWeight: 700,
                     fontSize: 13,
                     letterSpacing: 0.3,
                     color: active ? "#fff" : "var(--text-muted)",
+                    opacity: comicLocked ? 0.55 : 1,
                     background: active
                       ? (m === "comic"
                         ? "linear-gradient(135deg, rgba(14,165,233,0.85), rgba(34,211,238,0.85))"
@@ -164,7 +176,14 @@ export default function Home() {
                     transition: "all 0.2s ease",
                   }}
                 >
-                  {m === "comic" ? "Comics" : "Manga"}
+                  {m === "comic" ? (
+                    <span style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 2, lineHeight: 1.15 }}>
+                      <span>Comics</span>
+                      <span style={{ fontSize: 10, fontWeight: 600, opacity: 0.9 }}>Coming soon</span>
+                    </span>
+                  ) : (
+                    "Manga"
+                  )}
                 </button>
               );
             })}
