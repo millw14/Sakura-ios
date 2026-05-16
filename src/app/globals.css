@@ -1679,21 +1679,23 @@ body {
 }
 
 /* ============ BOTTOM NAVIGATION ============ */
+/* Space for floating nav: nav height + offset above home indicator + safe area */
 body {
-  padding-bottom: 96px;
+  padding-bottom: calc(90px + env(safe-area-inset-bottom, 0px));
 }
 
 .bottom-nav {
   position: fixed;
-  bottom: 32px;
-  left: 14px;
-  right: 14px;
+  /* Pin above the home indicator; env() needs viewport-fit=cover (set in layout.tsx) */
+  bottom: calc(12px + env(safe-area-inset-bottom, 0px));
+  left: max(14px, env(safe-area-inset-left, 0px));
+  right: max(14px, env(safe-area-inset-right, 0px));
   z-index: 1000;
   display: flex;
   justify-content: space-around;
   align-items: center;
   height: 62px;
-  padding-bottom: env(safe-area-inset-bottom, 0px);
+  box-sizing: border-box;
   border-radius: 22px;
   backdrop-filter: blur(40px) saturate(200%);
   -webkit-backdrop-filter: blur(40px) saturate(200%);
@@ -5935,8 +5937,8 @@ body {
 
 .floating-trade-widget {
   position: fixed;
-  bottom: 80px;
-  right: 16px;
+  bottom: calc(88px + env(safe-area-inset-bottom, 0px));
+  right: max(16px, env(safe-area-inset-right, 0px));
   z-index: 9999;
   display: flex;
   align-items: center;

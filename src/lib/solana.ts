@@ -2,7 +2,9 @@ import { Connection, PublicKey } from "@solana/web3.js";
 
 // ============ Network Config ============
 export const SOLANA_NETWORK = "mainnet-beta";
-export const RPC_ENDPOINT = "https://api.mainnet-beta.solana.com";
+/** Set NEXT_PUBLIC_SOLANA_RPC in .env.local (e.g. Helius) for production; falls back to public RPC. */
+export const RPC_ENDPOINT =
+    process.env.NEXT_PUBLIC_SOLANA_RPC || "https://api.mainnet-beta.solana.com";
 
 // ============ $SAKURA Token Config ============
 // $SAKURA SPL token mint address
