@@ -104,13 +104,18 @@ interface TitleSignals {
     special: boolean;
 }
 
+// Bumped to v9 to wipe stale provider matches from the old broad-search
+// flow. Popular titles like Demon Slayer / Solo Leveling often had HiAnime
+// specials returned first, which then got cached as a rejected one-episode
+// provider entry.
+//
 // Bumped to v8 to also wipe stale `srcmap_v4_*` entries written by the
 // previous scoring algorithm, which couldn't read Roman numerals. Without
 // the bump, a returning user would keep seeing "The Outcast 4th Season"
 // pinned to MAL id 59708 because the cached mapping survives the must-
 // have-token fix below. Touching the prefix recomputes every srcmap on
 // first launch of the new build.
-const CACHE_PREFIX = "sakura_anime_v8_";
+const CACHE_PREFIX = "sakura_anime_v9_";
 const TTL_SEARCH = 30 * 60 * 1000;
 const TTL_TRENDING = 2 * 60 * 60 * 1000;
 const TTL_INFO = 24 * 60 * 60 * 1000;
@@ -118,6 +123,20 @@ const TTL_EPISODES = 6 * 60 * 60 * 1000;
 const TTL_SOURCE_MAP = 48 * 60 * 60 * 1000;
 const MIN_CANDIDATE_SCORE = 25;
 const MAX_RANKED_CANDIDATES = 5;
+const CURATED_SOURCE_MATCHES: Record<string, { slug: string; animeId: string; title: string }> = {
+    // Naruto: Shippuden
+    "1735": { slug: "naruto-shippuden-z16n", animeId: "4466", title: "Naruto: Shippuden" },
+    // Boruto: Naruto Next Generations
+    "34566": { slug: "boruto-naruto-next-generations-l5n7", animeId: "7690", title: "Boruto: Naruto Next Generations" },
+    // Hunter x Hunter (1999)
+    "136": { slug: "hunter-x-hunter-b4s3", animeId: "3658", title: "Hunter x Hunter" },
+    // Hunter x Hunter (2011)
+    "11061": { slug: "hunter-x-hunter-ey62", animeId: "7100", title: "Hunter x Hunter" },
+    // Demon Slayer: Kimetsu no Yaiba
+    "38000": { slug: "demon-slayer-kimetsu-no-yaiba-lg46", animeId: "5974", title: "Demon Slayer: Kimetsu no Yaiba" },
+    // Solo Leveling
+    "52299": { slug: "solo-leveling-ew87", animeId: "8066", title: "Solo Leveling" },
+};
 const STOP_WORDS = new Set([
     "the",
     "a",
@@ -523,6 +542,42 @@ function clearAnimeInfoCache(malId: string, animeId?: string): void {
     }
 }
 
+async function resolveCuratedSourceMatch(jikanData: JikanAnime): Promise<ResolvedSourceMatch | null> {
+    const malId = String(jikanData.mal_id);
+    const curated = CURATED_SOURCE_MATCHES[malId];
+    if (!curated || !isSourceConfigured()) return null;
+
+    setSlugForAnimeId(curated.animeId, curated.slug);
+    const episodes = await loadEpisodesForAnimeId(curated.animeId, { useCache: false });
+    const suspiciousReason = getSuspiciousMatchReason(jikanData, curated.title, episodes.length);
+    if (suspiciousReason) {
+        _lastDiag += ` -> curated rejected(${curated.slug}: ${suspiciousReason})`;
+        cacheRemove(`episodes_${curated.animeId}`);
+        return null;
+    }
+
+    const resolved: ResolvedSourceMatch = {
+        slug: curated.slug,
+        animeId: curated.animeId,
+        matchedTitle: curated.title,
+        score: 1000,
+        query: "curated",
+        cacheHit: false,
+        episodes,
+    };
+
+    cacheSet(`srcmap_v4_${malId}`, {
+        slug: resolved.slug,
+        animeId: resolved.animeId,
+        matchedTitle: resolved.matchedTitle,
+        score: resolved.score,
+        query: resolved.query,
+    }, TTL_SOURCE_MAP);
+
+    _lastDiag += ` -> src(curated:${resolved.slug}, eps=${episodes.length})`;
+    return resolved;
+}
+
 async function resolveSourceMatch(
     jikanData: JikanAnime,
     options: { forceRefresh?: boolean; rejectedSlugs?: Set<string> } = {},
@@ -730,7 +785,10 @@ async function loadAnimeInfo(id: string, options: AnimeInfoRefreshOptions = {}):
 
     _lastDiag = `Jikan OK: "${jikanData.title}" / "${jikanData.title_english || ""}"`;
 
-    let sourceMatch = await resolveSourceMatch(jikanData, { forceRefresh: options.forceSourceRefresh });
+    let sourceMatch = await resolveCuratedSourceMatch(jikanData);
+    if (!sourceMatch) {
+        sourceMatch = await resolveSourceMatch(jikanData, { forceRefresh: options.forceSourceRefresh });
+    }
     let episodes: AnimeInfo["episodes"] = [];
 
     if (sourceMatch?.animeId) {
