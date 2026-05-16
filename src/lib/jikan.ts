@@ -6,6 +6,8 @@ export interface JikanAnime {
     mal_id: number;
     title: string;
     title_english: string | null;
+    title_japanese?: string | null;
+    title_synonyms?: string[];
     images: {
         webp: {
             image_url: string;
@@ -16,6 +18,7 @@ export interface JikanAnime {
     status: string;
     type: string;
     year: number | null;
+    episodes?: number | null;
     score: number | null;
     genres: { name: string }[];
 }
@@ -31,7 +34,8 @@ async function requestJikan(url: string) {
     if (Capacitor.isNativePlatform()) {
         const response = await CapacitorHttp.get({ url });
         if (response.status >= 400) throw new Error(`HTTP Error: ${response.status}`);
-        data = response.data;
+        const raw = response.data;
+        data = typeof raw === "string" ? JSON.parse(raw) : raw;
     } else {
         const res = await fetch(url);
         if (!res.ok) throw new Error(`HTTP Error: ${res.status}`);
@@ -54,7 +58,7 @@ export async function fetchJikanSearch(query: string): Promise<JikanAnime[]> {
 
 export async function fetchJikanTrending(): Promise<JikanAnime[]> {
     try {
-        const data = await requestJikan(`${JIKAN_API}/top/anime?filter=airing&limit=12`);
+        const data = await requestJikan(`${JIKAN_API}/top/anime?filter=airing&limit=15`);
         return data.data || [];
     } catch (e) {
         console.error("Jikan Trending Error", e);
@@ -90,7 +94,7 @@ export const ANIME_GENRES: { id: number; name: string }[] = [
 export async function fetchJikanByGenre(genreId: number): Promise<JikanAnime[]> {
     try {
         const data = await requestJikan(
-            `${JIKAN_API}/anime?genres=${genreId}&order_by=popularity&sort=asc&sfw=true&limit=12`
+            `${JIKAN_API}/anime?genres=${genreId}&order_by=popularity&sort=asc&sfw=true&limit=15`
         );
         return data.data || [];
     } catch (e) {

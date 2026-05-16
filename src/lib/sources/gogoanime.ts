@@ -1,4 +1,4 @@
-import { Capacitor, CapacitorHttp } from '@capacitor/core';
+import { Capacitor, CapacitorHttp } from "@capacitor/core";
 
 const API_BASE = (
     process.env.NEXT_PUBLIC_CONSUMET_URL || ""
@@ -6,23 +6,103 @@ const API_BASE = (
 
 const HIANIME_BASE = "https://hianime.dk";
 
+export interface AnimeSourceErrorPayload {
+    message: string;
+    code?: string;
+    stage?: string;
+    status?: number;
+    details?: Record<string, unknown>;
+}
+
+export class AnimeSourceError extends Error {
+    code?: string;
+    stage?: string;
+    status?: number;
+    details?: Record<string, unknown>;
+
+    constructor(payload: AnimeSourceErrorPayload) {
+        super(payload.message);
+        this.name = "AnimeSourceError";
+        this.code = payload.code;
+        this.stage = payload.stage;
+        this.status = payload.status;
+        this.details = payload.details;
+    }
+}
+
+function toSourceError(value: unknown, fallback: AnimeSourceErrorPayload): AnimeSourceError {
+    if (value instanceof AnimeSourceError) {
+        return value;
+    }
+    if (value instanceof Error) {
+        return new AnimeSourceError({
+            ...fallback,
+            message: value.message || fallback.message,
+        });
+    }
+    return new AnimeSourceError(fallback);
+}
+
+async function parseFetchError(res: Response): Promise<AnimeSourceError> {
+    let body: any = null;
+    try {
+        body = await res.json();
+    } catch {
+        body = null;
+    }
+
+    return new AnimeSourceError({
+        message: body?.error || `HTTP ${res.status}`,
+        code: body?.code,
+        stage: body?.stage,
+        status: res.status,
+        details: body?.details,
+    });
+}
+
+function parseNativeErrorBody(data: unknown, status: number): AnimeSourceError {
+    let body: any = data;
+    if (typeof body === "string") {
+        try {
+            body = JSON.parse(body);
+        } catch {
+            body = null;
+        }
+    }
+    return new AnimeSourceError({
+        message: body?.error || `HTTP ${status}`,
+        code: body?.code,
+        stage: body?.stage,
+        status,
+        details: body?.details,
+    });
+}
+
 async function apiGet(path: string, timeout = 15000) {
     if (!API_BASE) throw new Error("NEXT_PUBLIC_CONSUMET_URL not set");
     const url = `${API_BASE}${path}`;
+
     if (Capacitor.isNativePlatform()) {
-        const response = await CapacitorHttp.get({ url, connectTimeout: timeout, readTimeout: timeout });
-        if (response.status >= 400) throw new Error(`HTTP ${response.status}`);
-        return typeof response.data === 'string' ? JSON.parse(response.data) : response.data;
-    } else {
-        const controller = new AbortController();
-        const timer = setTimeout(() => controller.abort(), timeout);
-        try {
-            const res = await fetch(url, { signal: controller.signal });
-            if (!res.ok) throw new Error(`HTTP ${res.status}`);
-            return res.json();
-        } finally {
-            clearTimeout(timer);
+        const response = await CapacitorHttp.get({
+            url,
+            connectTimeout: timeout,
+            readTimeout: timeout,
+        });
+        if (response.status >= 400) {
+            throw parseNativeErrorBody(response.data, response.status);
         }
+        const payload = response.data;
+        return typeof payload === "string" ? JSON.parse(payload) : payload;
+    }
+
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeout);
+    try {
+        const res = await fetch(url, { signal: controller.signal });
+        if (!res.ok) throw await parseFetchError(res);
+        return res.json();
+    } finally {
+        clearTimeout(timer);
     }
 }
 
@@ -31,36 +111,59 @@ export function isConfigured(): boolean {
 }
 
 let _lastError = '';
+let _lastErrorDetails: AnimeSourceErrorPayload | null = null;
 export function getLastConsumetError(): string { return _lastError; }
+export function getLastConsumetErrorDetails(): AnimeSourceErrorPayload | null { return _lastErrorDetails; }
 
 export async function searchAnimeSource(query: string): Promise<{ id: string; title: string; slug?: string; animeId?: string; poster?: string }[]> {
     try {
         _lastError = '';
-        const url = `/api/search?keyword=${encodeURIComponent(query)}`;
-        console.log(`[HiAnime] Searching: ${API_BASE}${url}`);
-        const data = await apiGet(url);
+        _lastErrorDetails = null;
+        const reqPath = `/api/search?keyword=${encodeURIComponent(query)}`;
+        console.log(`[HiAnime] Searching: ${API_BASE}${reqPath}`);
+        const data = await apiGet(reqPath);
         const results = data.results || data.animes || [];
         if (!Array.isArray(results) || results.length === 0) {
             _lastError = `No results for "${query}"`;
+            _lastErrorDetails = { message: _lastError, code: "NO_SEARCH_RESULTS", stage: "search" };
             return [];
         }
         console.log(`[HiAnime] Found ${results.length} results for "${query}"`);
-        return results.map((r: any) => ({
-            id: r.slug || r.id || '',
-            title: r.name || r.title || '',
-            slug: r.slug || r.id || '',
-            animeId: r.animeId || '',
-            poster: r.poster || '',
-        })).filter((r: any) => r.id && r.title);
-    } catch (e: any) {
-        _lastError = `Search "${query}": ${e.message || e}`;
-        console.error('[HiAnime] Search error:', e);
+        return results.map((r: any) => {
+            let rawSlug = r.slug || r.id || '';
+            rawSlug = rawSlug.replace(/^watch\//, '').replace(/\/ep-\d+$/, '');
+            return {
+                id: rawSlug,
+                title: r.name || r.title || '',
+                slug: rawSlug,
+                animeId: r.animeId || '',
+                poster: r.poster || '',
+            };
+        }).filter((r: any) => r.id && r.title);
+    } catch (error: any) {
+        const sourceError = toSourceError(error, {
+            message: `Search "${query}" failed`,
+            code: "SEARCH_FAILED",
+            stage: "search",
+            details: { query },
+        });
+        _lastError = `Search "${query}": ${sourceError.message}`;
+        _lastErrorDetails = {
+            message: sourceError.message,
+            code: sourceError.code,
+            stage: sourceError.stage,
+            status: sourceError.status,
+            details: sourceError.details,
+        };
+        console.error('[HiAnime] Search error:', sourceError);
         return [];
     }
 }
 
 export async function getAnimeInfo(slug: string): Promise<{ animeId: string; name: string; description: string; poster: string } | null> {
     try {
+        _lastError = '';
+        _lastErrorDetails = null;
         const data = await apiGet(`/api/info/${encodeURIComponent(slug)}`);
         if (!data.animeId) return null;
         if (data.animeId) {
@@ -72,8 +175,22 @@ export async function getAnimeInfo(slug: string): Promise<{ animeId: string; nam
             description: data.description || '',
             poster: data.poster || '',
         };
-    } catch (e) {
-        console.error('[HiAnime] Info error:', e);
+    } catch (error) {
+        const sourceError = toSourceError(error, {
+            message: `Failed to resolve provider info for "${slug}"`,
+            code: "INFO_FAILED",
+            stage: "info",
+            details: { slug },
+        });
+        _lastError = sourceError.message;
+        _lastErrorDetails = {
+            message: sourceError.message,
+            code: sourceError.code,
+            stage: sourceError.stage,
+            status: sourceError.status,
+            details: sourceError.details,
+        };
+        console.error('[HiAnime] Info error:', sourceError);
         return null;
     }
 }
@@ -87,10 +204,11 @@ export function setSlugForAnimeId(animeId: string, slug: string) {
 
 export async function getAnimeSourceEpisodes(animeIdOrSlug: string): Promise<{ id: string; number: number; title: string }[]> {
     try {
+        _lastError = '';
+        _lastErrorDetails = null;
         let animeId = animeIdOrSlug;
 
         if (!/^\d+$/.test(animeId)) {
-            _slugByAnimeId.set('_pending', animeIdOrSlug);
             const info = await getAnimeInfo(animeId);
             if (!info?.animeId) {
                 console.warn(`[HiAnime] Could not resolve animeId for slug "${animeIdOrSlug}"`);
@@ -117,8 +235,22 @@ export async function getAnimeSourceEpisodes(animeIdOrSlug: string): Promise<{ i
                     title: ep.title || `Episode ${ep.number ?? '?'}`,
                 };
             });
-    } catch (e) {
-        console.error('[HiAnime] Episodes error:', e);
+    } catch (error) {
+        const sourceError = toSourceError(error, {
+            message: `Failed to fetch episode list for "${animeIdOrSlug}"`,
+            code: "EPISODES_FAILED",
+            stage: "episodes",
+            details: { animeIdOrSlug },
+        });
+        _lastError = sourceError.message;
+        _lastErrorDetails = {
+            message: sourceError.message,
+            code: sourceError.code,
+            stage: sourceError.stage,
+            status: sourceError.status,
+            details: sourceError.details,
+        };
+        console.error('[HiAnime] Episodes error:', sourceError);
         return [];
     }
 }
@@ -127,105 +259,116 @@ export function getServerIdsForEpisode(episodeId: string): string | null {
     return _serverIdsCache.get(episodeId) || null;
 }
 
-async function getEpisodeServers(serverIds: string): Promise<{ type: string; svId: string; linkId: string; name: string }[]> {
-    try {
-        const data = await apiGet(`/api/servers?ids=${encodeURIComponent(serverIds)}`);
-        return data.servers || [];
-    } catch (e) {
-        console.error('[HiAnime] Servers error:', e);
-        return [];
-    }
-}
-
-async function getEmbedUrl(linkId: string): Promise<string | null> {
-    try {
-        const data = await apiGet(`/api/source/${encodeURIComponent(linkId)}`);
-        return data.url || null;
-    } catch (e) {
-        console.error('[HiAnime] Source error:', e);
-        return null;
-    }
-}
-
-export async function getStreamingSources(episodeId: string): Promise<{
+export async function getStreamingSources(episodeId: string, category: 'sub' | 'dub' = 'sub'): Promise<{
     sources: { url: string; isM3U8: boolean; quality: string }[];
     subtitles: { file: string; label?: string }[];
     referer?: string;
+    intro?: { start: number; end: number } | null;
+    outro?: { start: number; end: number } | null;
+    category?: string;
+    availableCategories?: string[];
 } | null> {
     try {
-        console.log(`[HiAnime] getStreamingSources called with: ${episodeId}`);
+        _lastError = '';
+        _lastErrorDetails = null;
+        console.log(`[HiAnime] getStreamingSources called with: ${episodeId} category=${category}`);
 
         if (!episodeId.startsWith('hi-')) {
-            console.error(`[HiAnime] Unknown episode ID format: ${episodeId}`);
-            return null;
+            throw new AnimeSourceError({
+                message: `Unknown HiAnime episode format: ${episodeId}`,
+                code: "INVALID_EPISODE_ID",
+                stage: "mapping",
+                details: { episodeId, category },
+            });
         }
 
         const parts = episodeId.match(/^hi-(\d+)-(\d+)$/);
         if (!parts) {
-            console.error(`[HiAnime] Could not parse episode ID: ${episodeId}`);
-            return null;
+            throw new AnimeSourceError({
+                message: `Could not parse HiAnime episode id "${episodeId}"`,
+                code: "INVALID_EPISODE_ID",
+                stage: "mapping",
+                details: { episodeId, category },
+            });
         }
         const [, animeId, epNum] = parts;
 
         const slug = _slugByAnimeId.get(animeId);
-        if (slug) {
-            const watchUrl = `${HIANIME_BASE}/watch/${slug}/ep-${epNum}`;
-            console.log(`[HiAnime] SUCCESS: Watch URL → ${watchUrl}`);
-            return {
-                sources: [{ url: watchUrl, isM3U8: false, quality: 'default' }],
-                subtitles: [],
-                referer: HIANIME_BASE + '/',
-            };
-        }
-
-        console.log(`[HiAnime] No slug cached for animeId=${animeId}, trying embed URL chain...`);
-
-        let serverIds = _serverIdsCache.get(episodeId);
-        if (!serverIds) {
-            console.log(`[HiAnime] serverIds cache miss, refetching episodes for animeId=${animeId}`);
+        if (!slug) {
+            console.log(`[HiAnime] No slug cached for animeId=${animeId}, refetching...`);
             await getAnimeSourceEpisodes(animeId);
-            serverIds = _serverIdsCache.get(episodeId) || undefined;
-            if (!serverIds) {
-                console.error(`[HiAnime] FAIL: No serverIds for ${episodeId}`);
-                return null;
+        }
+
+        const resolvedSlug = _slugByAnimeId.get(animeId);
+        if (!resolvedSlug) {
+            throw new AnimeSourceError({
+                message: `Could not resolve provider slug for anime ${animeId}`,
+                code: "MISSING_SLUG",
+                stage: "mapping",
+                details: { animeId, episodeId, category },
+            });
+        }
+
+        try {
+            const data = await apiGet(`/api/m3u8/${encodeURIComponent(resolvedSlug)}/${epNum}?category=${category}`, 30000);
+            if (data?.sources?.length > 0) {
+                const src = data.sources[0];
+                console.log(`[HiAnime] SUCCESS (m3u8, ${category}): ${src.url.substring(0, 80)}...`);
+                return {
+                    sources: [{
+                        url: src.url,
+                        isM3U8: src.isM3U8 !== false,
+                        quality: src.quality || 'auto',
+                    }],
+                    subtitles: (data.subtitles || []).map((s: any) => ({
+                        file: s.url || s.file || '',
+                        label: s.lang || s.label || 'Unknown',
+                    })),
+                    referer: data.headers?.Referer || HIANIME_BASE + '/',
+                    intro: data.intro || null,
+                    outro: data.outro || null,
+                    category: data.category || category,
+                    availableCategories: data.availableCategories || ['sub'],
+                };
             }
+            throw new AnimeSourceError({
+                message: `No stream sources returned for episode ${episodeId}`,
+                code: "NO_STREAM_SOURCES",
+                stage: "extractor",
+                details: {
+                    animeId,
+                    slug: resolvedSlug,
+                    episodeId,
+                    category,
+                    availableCategories: data?.availableCategories || ['sub'],
+                },
+            });
+        } catch (error: any) {
+            const sourceError = toSourceError(error, {
+                message: `Stream extraction failed for episode ${episodeId}`,
+                code: "STREAM_REQUEST_FAILED",
+                stage: "extractor",
+                details: { animeId, slug: resolvedSlug, episodeId, category },
+            });
+            console.warn(`[HiAnime] m3u8 extraction failed: ${sourceError.message}`);
+            throw sourceError;
         }
-
-        const slugAfterRefetch = _slugByAnimeId.get(animeId);
-        if (slugAfterRefetch) {
-            const watchUrl = `${HIANIME_BASE}/watch/${slugAfterRefetch}/ep-${epNum}`;
-            console.log(`[HiAnime] SUCCESS (after refetch): Watch URL → ${watchUrl}`);
-            return {
-                sources: [{ url: watchUrl, isM3U8: false, quality: 'default' }],
-                subtitles: [],
-                referer: HIANIME_BASE + '/',
-            };
-        }
-
-        console.log(`[HiAnime] Falling back to embed URL extraction...`);
-        const servers = await getEpisodeServers(serverIds);
-        if (servers.length === 0) {
-            console.error(`[HiAnime] FAIL: No servers returned`);
-            return null;
-        }
-
-        const subServers = servers.filter(s => s.type === 's-sub');
-        const target = subServers[0] || servers[0];
-
-        const embedUrl = await getEmbedUrl(target.linkId);
-        if (!embedUrl) {
-            console.error(`[HiAnime] FAIL: getEmbedUrl returned null`);
-            return null;
-        }
-
-        console.log(`[HiAnime] SUCCESS (embed): ${embedUrl}`);
-        return {
-            sources: [{ url: embedUrl, isM3U8: false, quality: target.name || 'default' }],
-            subtitles: [],
-            referer: HIANIME_BASE + '/',
+    } catch (error) {
+        const sourceError = toSourceError(error, {
+            message: `Streaming sources failed for episode ${episodeId}`,
+            code: "STREAMING_FAILED",
+            stage: "extractor",
+            details: { episodeId, category },
+        });
+        _lastError = sourceError.message;
+        _lastErrorDetails = {
+            message: sourceError.message,
+            code: sourceError.code,
+            stage: sourceError.stage,
+            status: sourceError.status,
+            details: sourceError.details,
         };
-    } catch (e) {
-        console.error('[HiAnime] Streaming sources error:', e);
-        return null;
+        console.error('[HiAnime] Streaming sources error:', sourceError);
+        throw sourceError;
     }
 }

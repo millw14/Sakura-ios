@@ -12,6 +12,7 @@ public class AnimePlugin: CAPPlugin, CAPBridgedPlugin {
         CAPPluginMethod(name: "playEpisode", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "playLocalEpisode", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "downloadEpisode", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "cancelDownload", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "searchHiAnime", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "getEpisodes", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "clearCache", returnType: CAPPluginReturnPromise),
@@ -19,6 +20,28 @@ public class AnimePlugin: CAPPlugin, CAPBridgedPlugin {
 
     private lazy var scraper: AnimeScraper = AnimeScraper()
     private lazy var extractor: WebViewExtractor = WebViewExtractor()
+
+    private let downloadStateLock = NSLock()
+    private var downloadCancelledEpisodeIds = Set<String>()
+
+    private func requestDownloadCancel(episodeId: String) {
+        downloadStateLock.lock()
+        downloadCancelledEpisodeIds.insert(episodeId)
+        downloadStateLock.unlock()
+    }
+
+    private func clearDownloadCancelFlag(episodeId: String) {
+        downloadStateLock.lock()
+        downloadCancelledEpisodeIds.remove(episodeId)
+        downloadStateLock.unlock()
+    }
+
+    private func isDownloadCancelled(episodeId: String) -> Bool {
+        downloadStateLock.lock()
+        let cancelled = downloadCancelledEpisodeIds.contains(episodeId)
+        downloadStateLock.unlock()
+        return cancelled
+    }
 
     // MARK: - playEpisode
 
@@ -189,30 +212,59 @@ public class AnimePlugin: CAPPlugin, CAPBridgedPlugin {
 
         let title = call.getString("title") ?? "Episode"
         let animeTitle = call.getString("animeTitle") ?? "Anime"
+        let passedM3u8 = (call.getString("m3u8Url") ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        let passedReferer = call.getString("referer") ?? ""
 
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             guard let self = self else { return }
 
             do {
+                self.clearDownloadCancelFlag(episodeId: episodeId)
                 self.notifyDownload(episodeId: episodeId, progress: 0, state: "extracting")
 
-                try self.scraper.ensureCfCookies()
-                let embedUrls = try self.scraper.resolveAllEmbedUrls(episodeId: episodeId)
-                guard !embedUrls.isEmpty else {
-                    throw AnimeError.noServers(episodeId)
-                }
-
-                var stream: ExtractedStream?
-                for (embedUrl, _) in embedUrls {
-                    let extraction = try self.extractor.extract(embedUrl: embedUrl)
-                    if let s = extraction.stream {
-                        stream = s
-                        break
+                let resolvedStream: ExtractedStream
+                if !passedM3u8.isEmpty {
+                    try self.scraper.ensureCfCookies()
+                    if self.isDownloadCancelled(episodeId: episodeId) {
+                        self.clearDownloadCancelFlag(episodeId: episodeId)
+                        self.notifyDownload(episodeId: episodeId, progress: 0, state: "cancelled")
+                        call.reject("Cancelled")
+                        return
                     }
+                    resolvedStream = ExtractedStream(m3u8Url: passedM3u8, referer: passedReferer, subtitles: [])
+                } else {
+                    try self.scraper.ensureCfCookies()
+                    let embedUrls = try self.scraper.resolveAllEmbedUrls(episodeId: episodeId)
+                    guard !embedUrls.isEmpty else {
+                        throw AnimeError.noServers(episodeId)
+                    }
+
+                    var stream: ExtractedStream?
+                    for (embedUrl, _) in embedUrls {
+                        if self.isDownloadCancelled(episodeId: episodeId) {
+                            self.clearDownloadCancelFlag(episodeId: episodeId)
+                            self.notifyDownload(episodeId: episodeId, progress: 0, state: "cancelled")
+                            call.reject("Cancelled")
+                            return
+                        }
+                        let extraction = try self.extractor.extract(embedUrl: embedUrl)
+                        if let s = extraction.stream {
+                            stream = s
+                            break
+                        }
+                    }
+
+                    guard let s = stream else {
+                        throw AnimeError.extractionFailed
+                    }
+                    resolvedStream = s
                 }
 
-                guard let resolvedStream = stream else {
-                    throw AnimeError.extractionFailed
+                if self.isDownloadCancelled(episodeId: episodeId) {
+                    self.clearDownloadCancelFlag(episodeId: episodeId)
+                    self.notifyDownload(episodeId: episodeId, progress: 0, state: "cancelled")
+                    call.reject("Cancelled")
+                    return
                 }
 
                 self.notifyDownload(episodeId: episodeId, progress: 3, state: "downloading")
@@ -257,6 +309,13 @@ public class AnimePlugin: CAPPlugin, CAPBridgedPlugin {
                     }
                 }
 
+                if self.isDownloadCancelled(episodeId: episodeId) {
+                    self.clearDownloadCancelFlag(episodeId: episodeId)
+                    self.notifyDownload(episodeId: episodeId, progress: 0, state: "cancelled")
+                    call.reject("Cancelled")
+                    return
+                }
+
                 self.notifyDownload(episodeId: episodeId, progress: 5, state: "downloading")
 
                 let safeName = "\(animeTitle) - \(title)"
@@ -275,6 +334,13 @@ public class AnimePlugin: CAPPlugin, CAPBridgedPlugin {
                 defer { fileHandle.closeFile() }
 
                 for (index, segUrl) in segments.enumerated() {
+                    if self.isDownloadCancelled(episodeId: episodeId) {
+                        try? FileManager.default.removeItem(at: tempFile)
+                        self.clearDownloadCancelFlag(episodeId: episodeId)
+                        self.notifyDownload(episodeId: episodeId, progress: 0, state: "cancelled")
+                        call.reject("Cancelled")
+                        return
+                    }
                     let segData = try self.downloadSegment(
                         session: session,
                         url: segUrl,
@@ -296,6 +362,15 @@ public class AnimePlugin: CAPPlugin, CAPBridgedPlugin {
                 call.reject("Download failed: \(error.localizedDescription)")
             }
         }
+    }
+
+    @objc func cancelDownload(_ call: CAPPluginCall) {
+        guard let episodeId = call.getString("episodeId"), !episodeId.isEmpty else {
+            call.reject("Missing episodeId")
+            return
+        }
+        requestDownloadCancel(episodeId: episodeId)
+        call.resolve(["success": true])
     }
 
     // MARK: - clearCache
