@@ -39,6 +39,12 @@ export interface AnimeInfo extends AnimeResult {
         image?: string;
     }[];
     /**
+     * HiAnime / Consumet ids persisted with cached anime info so stream
+     * URLs resolve after a cold start (in-memory slug map is otherwise empty).
+     */
+    providerAnimeId?: string;
+    providerSlug?: string;
+    /**
      * Populated when the streaming source could not be resolved or
      * returned no episodes. Surfaces the underlying diagnostic so the
      * details page can render an informative empty-state.
@@ -684,6 +690,20 @@ function buildAnimeInfo(jikanData: JikanAnime, episodes: AnimeInfo["episodes"]):
     };
 }
 
+function hydrateProviderSlugFromCache(malId: string, info: AnimeInfo): void {
+    if (info.providerAnimeId && info.providerSlug) {
+        setSlugForAnimeId(info.providerAnimeId, info.providerSlug);
+        return;
+    }
+    const cachedMapping = cacheGet<SourceMapping>(`srcmap_v4_${malId}`);
+    if (cachedMapping?.animeId && cachedMapping.slug) {
+        setSlugForAnimeId(cachedMapping.animeId, cachedMapping.slug);
+        info.providerAnimeId = cachedMapping.animeId;
+        info.providerSlug = cachedMapping.slug;
+        cacheSet(`info_${malId}`, info, TTL_INFO);
+    }
+}
+
 async function loadAnimeInfo(id: string, options: AnimeInfoRefreshOptions = {}): Promise<AnimeInfo | null> {
     _lastDiag = "";
 
@@ -696,6 +716,7 @@ async function loadAnimeInfo(id: string, options: AnimeInfoRefreshOptions = {}):
     if (!options.forceSourceRefresh) {
         const cached = cacheGet<AnimeInfo>(cacheKey);
         if (cached) {
+            hydrateProviderSlugFromCache(id, cached);
             _lastDiag = `[cache hit] eps=${cached.episodes?.length || 0}`;
             return cached;
         }
@@ -728,6 +749,10 @@ async function loadAnimeInfo(id: string, options: AnimeInfoRefreshOptions = {}):
     }
 
     const info = buildAnimeInfo(jikanData, episodes);
+    if (sourceMatch?.animeId && sourceMatch.slug) {
+        info.providerAnimeId = sourceMatch.animeId;
+        info.providerSlug = sourceMatch.slug;
+    }
     if (episodes.length === 0) {
         // Surface the diagnostic on the details page instead of silently
         // showing "0 episodes". Callers can read this from `info.episodeLoadError`.
@@ -880,7 +905,10 @@ export async function fetchAnimeInfo(id: string): Promise<AnimeInfo | null> {
 }
 
 export function getCachedAnimeInfo(id: string): AnimeInfo | null {
-    return cacheGet<AnimeInfo>(`info_${id}`);
+    if (id === PSYOP_ID) return null;
+    const cached = cacheGet<AnimeInfo>(`info_${id}`);
+    if (cached) hydrateProviderSlugFromCache(id, cached);
+    return cached;
 }
 
 export async function refreshAnimeInfo(

@@ -40,7 +40,7 @@ function AnimeDetailsInner() {
     const searchParams = useSearchParams();
     const router = useRouter();
     const id = searchParams.get("id") || "";
-    const isNative = Capacitor.isNativePlatform();
+    const isAndroidNative = Capacitor.getPlatform() === "android";
     const isPsyop = id === PSYOP_ID;
 
     const [anime, setAnime] = useState<AnimeInfo | null>(isPsyop ? PSYOP_INFO : null);
@@ -82,7 +82,7 @@ function AnimeDetailsInner() {
     }, [id]);
 
     useEffect(() => {
-        if (!isNative) return;
+        if (!isAndroidNative) return;
         let handle: { remove: () => void } | null = null;
         (async () => {
             const { Anime } = await import("@/plugins/anime");
@@ -103,7 +103,7 @@ function AnimeDetailsInner() {
             listenerRef.current = handle;
         })();
         return () => { handle?.remove(); };
-    }, [isNative, showToast]);
+    }, [isAndroidNative, showToast]);
 
     const handleCancelDownload = useCallback(async (episodeId: string) => {
         try {
@@ -411,7 +411,7 @@ function AnimeDetailsInner() {
 
                                         {/* Actions */}
                                         <div className="anime-episode-actions">
-                                            {isNative && (
+                                            {isAndroidNative && (
                                                 <>
                                                     {isCompleted ? (
                                                         <button className="anime-episode-dl" title="Downloaded" onClick={(e) => { e.preventDefault(); handleDownload(ep); }}>

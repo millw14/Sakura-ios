@@ -72,7 +72,8 @@ function AnimeWatchInner() {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<WatchErrorState | null>(null);
     const [nativePlaying, setNativePlaying] = useState(false);
-    const [isNative] = useState(Capacitor.isNativePlatform());
+    /** ExoPlayer / Anime plugin streaming is Android-only; iOS and web use iframe playback. */
+    const [useAndroidExoPlayer] = useState(Capacitor.getPlatform() === "android");
     const [playTriggered, setPlayTriggered] = useState(false);
     const [category, setCategory] = useState<"sub" | "dub">(getSavedCategory);
     const [availableCategories, setAvailableCategories] = useState<string[]>(["sub"]);
@@ -169,7 +170,7 @@ function AnimeWatchInner() {
         return () => {
             cancelled = true;
         };
-    }, [id, episodeId, isNative, category, reloadToken, applyResolvedCategory]);
+    }, [id, episodeId, category, reloadToken, applyResolvedCategory]);
 
     const retryStream = useCallback(() => {
         setPlayTriggered(false);
@@ -333,18 +334,18 @@ function AnimeWatchInner() {
     }, [anime, episodeId, id, router, source]);
 
     useEffect(() => {
-        if (isNative && anime && source && !error && !nativePlaying && !playTriggered) {
+        if (useAndroidExoPlayer && anime && source && !error && !nativePlaying && !playTriggered) {
             setPlayTriggered(true);
             playNative();
         }
-    }, [isNative, anime, source, error, nativePlaying, playTriggered, playNative]);
+    }, [useAndroidExoPlayer, anime, source, error, nativePlaying, playTriggered, playNative]);
 
     // Suppress duplicate Space-bar pause/play on web. The embedded iframe
     // player already handles Space; if focus passes to the parent document,
     // the page would also fire its own scroll/play handler, so we swallow
     // the keystroke and forward it to the iframe.
     useEffect(() => {
-        if (isNative) return;
+        if (useAndroidExoPlayer) return;
         if (typeof window === "undefined") return;
         const onKeyDown = (e: KeyboardEvent) => {
             if (e.code !== "Space" && e.key !== " ") return;
@@ -359,13 +360,13 @@ function AnimeWatchInner() {
         };
         window.addEventListener("keydown", onKeyDown, { capture: true });
         return () => window.removeEventListener("keydown", onKeyDown, { capture: true } as any);
-    }, [isNative]);
+    }, [useAndroidExoPlayer]);
 
     if (loading) {
         return (
             <main className="cinema-page" style={{ height: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: "#000" }}>
                 <div className="spinner" style={{ color: "var(--sakura-pink)" }}>
-                    {isNative ? "🌸 Preparing Native Player..." : "🌸 Locating Stream..."}
+                    {useAndroidExoPlayer ? "🌸 Preparing Native Player..." : "🌸 Locating Stream..."}
                 </div>
             </main>
         );
@@ -412,7 +413,7 @@ function AnimeWatchInner() {
                             {rematching ? "Rematching..." : "Rematch Series"}
                         </button>
                     )}
-                    {isNative && source?.url && (
+                    {useAndroidExoPlayer && source?.url && (
                         <button onClick={playNative} className="btn-secondary" style={{ padding: "12px 24px" }}>
                             Retry Native Player
                         </button>
@@ -516,14 +517,14 @@ function AnimeWatchInner() {
                 paddingTop: "60px",
                 paddingBottom: "10px",
             }}>
-                {isNative ? (
+                {useAndroidExoPlayer ? (
                     <div style={{ textAlign: "center", padding: "2rem" }}>
                         <div style={{ fontSize: "48px", marginBottom: "1rem" }}>🍿</div>
                         <h2 style={{ color: "white", marginBottom: "1rem" }}>
                             {nativePlaying ? "Launching Player..." : "Native Player Ready"}
                         </h2>
                         <p style={{ color: "var(--text-muted)", marginBottom: "2rem", maxWidth: "300px" }}>
-                            Sakura uses the native video player for ad-free playback on iOS and Android.
+                            Sakura uses a native Android video engine for the fastest ad-free playback.
                         </p>
                         <button
                             onClick={playNative}
